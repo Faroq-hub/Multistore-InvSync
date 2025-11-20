@@ -382,6 +382,14 @@ export const AuditRepo = {
   },
   recent(limit = 200) {
     return db.prepare(`SELECT * FROM audit_logs ORDER BY ts DESC LIMIT @limit`).all({ limit });
+  },
+  countSyncedSkus(connection_id: string): number {
+    const row = db.prepare(
+      `SELECT COUNT(DISTINCT sku) as count 
+       FROM audit_logs 
+       WHERE connection_id=@connection_id AND sku IS NOT NULL`
+    ).get({ connection_id }) as { count?: number } | undefined;
+    return row?.count ?? 0;
   }
 };
 
