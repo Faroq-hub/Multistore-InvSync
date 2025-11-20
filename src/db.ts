@@ -191,6 +191,7 @@ export type ConnectionRow = {
   consumer_secret: string | null;
   access_token: string | null;
   rules_json: string | null;
+   last_synced_at?: string | null;
   created_at: string;
   updated_at: string;
 };
