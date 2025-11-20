@@ -97,6 +97,39 @@ export function migrate() {
     );
     CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_logs(ts);
     CREATE INDEX IF NOT EXISTS idx_audit_conn ON audit_logs(connection_id);
+
+    -- Shopify OAuth sessions (offline/online)
+    CREATE TABLE IF NOT EXISTS shopify_sessions (
+      id TEXT PRIMARY KEY,
+      shop_domain TEXT NOT NULL,
+      session_type TEXT NOT NULL,
+      is_online INTEGER NOT NULL,
+      data TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_shopify_sessions_shop ON shopify_sessions(shop_domain);
+
+    -- Shopify OAuth state cache
+    CREATE TABLE IF NOT EXISTS shopify_oauth_states (
+      state TEXT PRIMARY KEY,
+      shop_domain TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_shopify_oauth_states_expires ON shopify_oauth_states(expires_at);
+
+    -- Shopify webhooks (optional local tracking)
+    CREATE TABLE IF NOT EXISTS shopify_webhooks (
+      installation_id TEXT NOT NULL,
+      topic TEXT NOT NULL,
+      webhook_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (installation_id, topic),
+      FOREIGN KEY (installation_id) REFERENCES installations(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_shopify_webhooks_installation ON shopify_webhooks(installation_id);
   `);
 }
 
@@ -201,6 +234,35 @@ export const InstallationRepo = {
   },
   getByDomain(shop_domain: string): InstallationRow | undefined {
     return db.prepare(`SELECT * FROM installations WHERE shop_domain=@shop_domain`).get({ shop_domain }) as InstallationRow | undefined;
+  },
+  getById(id: string): InstallationRow | undefined {
+    return db.prepare(`SELECT * FROM installations WHERE id=@id`).get({ id }) as InstallationRow | undefined;
+  }
+};
+
+export type ShopifyOAuthStateRow = {
+  state: string;
+  shop_domain: string;
+  created_at: string;
+  expires_at: string;
+};
+
+export const ShopifyOAuthStateRepo = {
+  insert(row: ShopifyOAuthStateRow) {
+    db.prepare(`
+      INSERT OR REPLACE INTO shopify_oauth_states (state, shop_domain, created_at, expires_at)
+      VALUES (@state, @shop_domain, @created_at, @expires_at)
+    `).run(row);
+  },
+  purgeExpired(nowIso: string) {
+    db.prepare(`DELETE FROM shopify_oauth_states WHERE expires_at < @now`).run({ now: nowIso });
+  },
+  consume(state: string): ShopifyOAuthStateRow | undefined {
+    const row = db.prepare(`SELECT * FROM shopify_oauth_states WHERE state=@state`).get({ state }) as ShopifyOAuthStateRow | undefined;
+    if (row) {
+      db.prepare(`DELETE FROM shopify_oauth_states WHERE state=@state`).run({ state });
+    }
+    return row;
   }
 };
 
