@@ -1,0 +1,38 @@
+# Render Blueprint for deploying both services
+
+services:
+  # Backend API Service
+  - type: web
+    name: inventory-sync-api
+    env: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: NODE_ENV
+        value: production
+    healthCheckPath: /health
+
+  # Frontend Next.js Service
+  - type: web
+    name: inventory-sync-app
+    env: node
+    plan: starter
+    buildCommand: npm install && npm run build:next
+    startCommand: npm run start:next
+    envVars:
+      - key: PORT
+        value: 3001
+      - key: NODE_ENV
+        value: production
+    healthCheckPath: /
+
+  # PostgreSQL Database
+  - type: pg
+    name: inventory-sync-db
+    plan: starter
+    databaseName: inventory_sync
+    user: inventory_user
+

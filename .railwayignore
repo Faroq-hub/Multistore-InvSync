@@ -1,0 +1,10 @@
+# Files to ignore when deploying to Railway
+node_modules/
+.git/
+.env
+.env.local
+*.log
+.DS_Store
+data/
+backups/
+
