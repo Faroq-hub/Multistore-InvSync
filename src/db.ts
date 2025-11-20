@@ -284,6 +284,21 @@ export const ConnectionRepo = {
   updateStatus(id: string, status: ConnectionRow['status']) {
     const now = new Date().toISOString();
     db.prepare(`UPDATE connections SET status=@status, updated_at=@updated_at WHERE id=@id`).run({ id, status, updated_at: now });
+  },
+  updateLocationId(id: string, dest_location_id: string | null) {
+    const now = new Date().toISOString();
+    db.prepare(`UPDATE connections SET dest_location_id=@dest_location_id, updated_at=@updated_at WHERE id=@id`)
+      .run({ id, dest_location_id, updated_at: now });
+  },
+  updateName(id: string, name: string) {
+    const now = new Date().toISOString();
+    db.prepare(`UPDATE connections SET name=@name, updated_at=@updated_at WHERE id=@id`)
+      .run({ id, name, updated_at: now });
+  },
+  updateRules(id: string, rules_json: string | null) {
+    const now = new Date().toISOString();
+    db.prepare(`UPDATE connections SET rules_json=@rules_json, updated_at=@updated_at WHERE id=@id`)
+      .run({ id, rules_json, updated_at: now });
   }
 };
 
