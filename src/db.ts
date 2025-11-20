@@ -299,6 +299,12 @@ export const ConnectionRepo = {
     const now = new Date().toISOString();
     db.prepare(`UPDATE connections SET rules_json=@rules_json, updated_at=@updated_at WHERE id=@id`)
       .run({ id, rules_json, updated_at: now });
+  },
+  delete(id: string) {
+    db.prepare(`DELETE FROM connections WHERE id=@id`).run({ id });
+  },
+  deleteAll(installation_id: string) {
+    db.prepare(`DELETE FROM connections WHERE installation_id=@installation_id`).run({ installation_id });
   }
 };
 
