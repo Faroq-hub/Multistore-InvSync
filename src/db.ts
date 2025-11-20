@@ -293,6 +293,9 @@ export const JobRepo = {
       VALUES (@id, @connection_id, @job_type, 'queued', 0, @created_at, @updated_at)`)
       .run({ ...job, created_at: now, updated_at: now });
   },
+  get(id: string): JobRow | undefined {
+    return db.prepare(`SELECT * FROM jobs WHERE id=@id`).get({ id }) as JobRow | undefined;
+  },
   pickNext(): JobRow | undefined {
     const job = db.prepare(`SELECT * FROM jobs WHERE state='queued' ORDER BY created_at ASC LIMIT 1`).get() as JobRow | undefined;
     if (!job) return undefined;
