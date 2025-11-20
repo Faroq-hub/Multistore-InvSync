@@ -4,16 +4,17 @@ import { requireShopFromSession } from '../../../_utils/authorize';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
     const shop = await requireShopFromSession(request);
     const installation = await InstallationRepo.getByDomain(shop);
     if (!installation) {
       return NextResponse.json({ error: 'Installation not found' }, { status: 404 });
     }
 
-    const connection = await ConnectionRepo.get(params.id);
+    const connection = await ConnectionRepo.get(id);
     if (!connection || connection.installation_id !== installation.id) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 });
     }
