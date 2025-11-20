@@ -54,7 +54,7 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
       const url = `https://${conn.dest_shop_domain}/admin/api/${apiVersion}/variants.json?sku=${encodeURIComponent(item.sku)}`;
       const res = await fetch(url, { headers });
       if (!res.ok) throw new Error(`variants?sku status ${res.status}`);
-      const data = await res.json();
+      const data: any = await res.json();
       const v = data.variants && data.variants[0];
       if (!v) {
         const msg = `Shopify dest missing SKU (create not implemented)`;
@@ -117,7 +117,7 @@ async function pushToWoo(connId: string, log: (m: string) => void, filterSkus?: 
       const searchUrl = `${base}/wp-json/wc/v3/products?${auth.toString()}&sku=${encodeURIComponent(item.sku)}`;
       const res = await fetch(searchUrl);
       if (!res.ok) throw new Error(`Woo search status ${res.status}`);
-      const products = await res.json();
+      const products: any = await res.json();
       let found = null;
       if (Array.isArray(products) && products.length > 0) {
         found = products[0];

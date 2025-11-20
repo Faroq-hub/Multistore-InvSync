@@ -14,8 +14,9 @@ export default async function webhookRoutes(app: FastifyInstance) {
   // Use a parser that keeps raw body string for HMAC verification
   app.addContentTypeParser('application/json', { parseAs: 'string' }, function (req, body, done) {
     try {
-      (req as any)._rawBody = body;
-      const json = body ? JSON.parse(body) : {};
+      const bodyStr = typeof body === 'string' ? body : body.toString('utf8');
+      (req as any)._rawBody = bodyStr;
+      const json = bodyStr ? JSON.parse(bodyStr) : {};
       done(null, json);
     } catch (err) {
       done(err as Error, undefined as any);

@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 import { shopify } from './shopify';
-import { InstallationRow, ShopifyWebhookRepo } from '../db';
+import { InstallationRow } from '../db';
 
 const REQUIRED_TOPICS = [
   'products/create',
@@ -56,8 +56,6 @@ export async function syncShopifyWebhooks(installation: InstallationRow): Promis
     }
   }
 
-  const registeredTopics = new Set<string>();
-
   for (const topic of REQUIRED_TOPICS) {
     const topicKey = topic.toLowerCase();
     let webhookId = existingByTopic.get(topicKey)?.id?.toString();
@@ -79,18 +77,7 @@ export async function syncShopifyWebhooks(installation: InstallationRow): Promis
       webhookId = created.webhook?.id ? String(created.webhook.id) : undefined;
     }
 
-    if (webhookId) {
-      await ShopifyWebhookRepo.upsert(installation.id, topic, webhookId);
-      registeredTopics.add(topic);
-    }
-  }
-
-  // Cleanup stale records
-  const stored = await ShopifyWebhookRepo.listByInstallation(installation.id);
-  for (const record of stored) {
-    if (!registeredTopics.has(record.topic)) {
-      await ShopifyWebhookRepo.delete(record.installation_id, record.topic);
-    }
+    // We rely on Shopify as source of truth; local DB tracking is optional and omitted here
   }
 }
 
