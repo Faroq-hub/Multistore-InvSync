@@ -29,8 +29,12 @@ export function buildServer() {
   app.register(etag);
   app.register(rateLimit, { max: 120, timeWindow: '1 minute' });
 
-  // DB migrations
-  migrate();
+  // DB migrations (async, but we'll run it in onReady hook)
+  app.addHook('onReady', async () => {
+    await migrate();
+    startScheduler((msg) => app.log.info(msg));
+    startPushWorker((msg) => app.log.info(msg));
+  });
 
   app.register(feedRoutes);
   app.register(adminRoutes);
@@ -38,11 +42,6 @@ export function buildServer() {
   app.register(connectionsRoutes);
   app.register(jobsRoutes);
   app.register(auditRoutes);
-
-  app.addHook('onReady', async () => {
-    startScheduler((msg) => app.log.info(msg));
-    startPushWorker((msg) => app.log.info(msg));
-  });
 
   return app;
 }

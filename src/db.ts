@@ -1,14 +1,20 @@
-import Database from 'better-sqlite3';
+import { createDbAdapter, type DbAdapter } from './db/adapter';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 
-const dbPath = join(process.cwd(), 'data', 'app.db');
-mkdirSync(join(process.cwd(), 'data'), { recursive: true });
+// Initialize database adapter (SQLite or PostgreSQL)
+const db: DbAdapter = createDbAdapter();
 
-export const db = new Database(dbPath);
+// Helper to handle both sync and async exec
+async function execMigration(sql: string): Promise<void> {
+  const result = db.exec(sql);
+  if (result instanceof Promise) {
+    await result;
+  }
+}
 
-export function migrate() {
-  db.exec(`
+export async function migrate() {
+  const migrationSql = `
     CREATE TABLE IF NOT EXISTS resellers (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -130,7 +136,9 @@ export function migrate() {
       FOREIGN KEY (installation_id) REFERENCES installations(id)
     );
     CREATE INDEX IF NOT EXISTS idx_shopify_webhooks_installation ON shopify_webhooks(installation_id);
-  `);
+  `;
+  
+  await execMigration(migrationSql);
 }
 
 export type ResellerRow = {
@@ -146,25 +154,37 @@ export type ResellerRow = {
 };
 
 export const ResellerRepo = {
-  insert(reseller: Omit<ResellerRow, 'created_at' | 'updated_at'>) {
+  async insert(reseller: Omit<ResellerRow, 'created_at' | 'updated_at'>) {
     const now = new Date().toISOString();
-    db.prepare(`
+    const stmt = db.prepare(`
       INSERT INTO resellers (id, name, status, api_key_salt, api_key_hash, last4, version, created_at, updated_at)
       VALUES (@id, @name, @status, @api_key_salt, @api_key_hash, @last4, @version, @created_at, @updated_at)
-    `).run({ ...reseller, created_at: now, updated_at: now });
+    `);
+    const result = stmt.run({ ...reseller, created_at: now, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
   },
-  updateKey(id: string, api_key_salt: string, api_key_hash: string, last4: string) {
+  async updateKey(id: string, api_key_salt: string, api_key_hash: string, last4: string) {
     const now = new Date().toISOString();
-    db.prepare(`
+    const stmt = db.prepare(`
       UPDATE resellers SET api_key_salt=@api_key_salt, api_key_hash=@api_key_hash, last4=@last4, updated_at=@updated_at
       WHERE id=@id
-    `).run({ id, api_key_salt, api_key_hash, last4, updated_at: now });
+    `);
+    const result = stmt.run({ id, api_key_salt, api_key_hash, last4, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
   },
-  findActiveByLast4(last4: string): ResellerRow[] {
-    return db.prepare(`SELECT * FROM resellers WHERE status='active' AND last4=@last4`).all({ last4 }) as ResellerRow[];
+  async findActiveByLast4(last4: string): Promise<ResellerRow[]> {
+    const stmt = db.prepare(`SELECT * FROM resellers WHERE status='active' AND last4=@last4`);
+    const result = stmt.all({ last4 });
+    return (result instanceof Promise ? await result : result) as ResellerRow[];
   },
-  list(): ResellerRow[] {
-    return db.prepare(`SELECT * FROM resellers ORDER BY created_at DESC`).all() as ResellerRow[];
+  async list(): Promise<ResellerRow[]> {
+    const stmt = db.prepare(`SELECT * FROM resellers ORDER BY created_at DESC`);
+    const result = stmt.all();
+    return (result instanceof Promise ? await result : result) as ResellerRow[];
   }
 };
 
@@ -191,7 +211,7 @@ export type ConnectionRow = {
   consumer_secret: string | null;
   access_token: string | null;
   rules_json: string | null;
-   last_synced_at?: string | null;
+  last_synced_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -219,25 +239,38 @@ export type JobItemRow = {
 };
 
 export const InstallationRepo = {
-  upsert(shop_domain: string, access_token?: string | null, scopes?: string | null) {
+  async upsert(shop_domain: string, access_token?: string | null, scopes?: string | null) {
     const now = new Date().toISOString();
-    const exist = db.prepare(`SELECT * FROM installations WHERE shop_domain=@shop_domain`).get({ shop_domain }) as InstallationRow | undefined;
+    const getStmt = db.prepare(`SELECT * FROM installations WHERE shop_domain=@shop_domain`);
+    const getResult = getStmt.get({ shop_domain });
+    const exist = (getResult instanceof Promise ? await getResult : getResult) as InstallationRow | undefined;
+    
     if (exist) {
-      db.prepare(`UPDATE installations SET access_token=@access_token, scopes=@scopes, updated_at=@updated_at WHERE shop_domain=@shop_domain`)
-        .run({ shop_domain, access_token: access_token ?? exist.access_token, scopes: scopes ?? exist.scopes, updated_at: now });
+      const updateStmt = db.prepare(`UPDATE installations SET access_token=@access_token, scopes=@scopes, updated_at=@updated_at WHERE shop_domain=@shop_domain`);
+      const updateResult = updateStmt.run({ shop_domain, access_token: access_token ?? exist.access_token, scopes: scopes ?? exist.scopes, updated_at: now });
+      if (updateResult instanceof Promise) {
+        await updateResult;
+      }
       return exist.id;
     }
     const id = `ins_${Date.now()}`;
-    db.prepare(`INSERT INTO installations (id, shop_domain, access_token, scopes, status, created_at, updated_at)
-      VALUES (@id, @shop_domain, @access_token, @scopes, 'active', @created_at, @updated_at)`)
-      .run({ id, shop_domain, access_token: access_token ?? null, scopes: scopes ?? null, created_at: now, updated_at: now });
+    const insertStmt = db.prepare(`INSERT INTO installations (id, shop_domain, access_token, scopes, status, created_at, updated_at)
+      VALUES (@id, @shop_domain, @access_token, @scopes, 'active', @created_at, @updated_at)`);
+    const insertResult = insertStmt.run({ id, shop_domain, access_token: access_token ?? null, scopes: scopes ?? null, created_at: now, updated_at: now });
+    if (insertResult instanceof Promise) {
+      await insertResult;
+    }
     return id;
   },
-  getByDomain(shop_domain: string): InstallationRow | undefined {
-    return db.prepare(`SELECT * FROM installations WHERE shop_domain=@shop_domain`).get({ shop_domain }) as InstallationRow | undefined;
+  async getByDomain(shop_domain: string): Promise<InstallationRow | undefined> {
+    const stmt = db.prepare(`SELECT * FROM installations WHERE shop_domain=@shop_domain`);
+    const result = stmt.get({ shop_domain });
+    return (result instanceof Promise ? await result : result) as InstallationRow | undefined;
   },
-  getById(id: string): InstallationRow | undefined {
-    return db.prepare(`SELECT * FROM installations WHERE id=@id`).get({ id }) as InstallationRow | undefined;
+  async getById(id: string): Promise<InstallationRow | undefined> {
+    const stmt = db.prepare(`SELECT * FROM installations WHERE id=@id`);
+    const result = stmt.get({ id });
+    return (result instanceof Promise ? await result : result) as InstallationRow | undefined;
   }
 };
 
@@ -249,112 +282,195 @@ export type ShopifyOAuthStateRow = {
 };
 
 export const ShopifyOAuthStateRepo = {
-  insert(row: ShopifyOAuthStateRow) {
-    db.prepare(`
-      INSERT OR REPLACE INTO shopify_oauth_states (state, shop_domain, created_at, expires_at)
-      VALUES (@state, @shop_domain, @created_at, @expires_at)
-    `).run(row);
+  async insert(row: ShopifyOAuthStateRow) {
+    // PostgreSQL uses ON CONFLICT, SQLite uses INSERT OR REPLACE
+    const isPostgres = !!process.env.DATABASE_URL;
+    let sql: string;
+    if (isPostgres) {
+      sql = `
+        INSERT INTO shopify_oauth_states (state, shop_domain, created_at, expires_at)
+        VALUES (@state, @shop_domain, @created_at, @expires_at)
+        ON CONFLICT (state) DO UPDATE SET
+          shop_domain = @shop_domain,
+          created_at = @created_at,
+          expires_at = @expires_at
+      `;
+    } else {
+      sql = `
+        INSERT OR REPLACE INTO shopify_oauth_states (state, shop_domain, created_at, expires_at)
+        VALUES (@state, @shop_domain, @created_at, @expires_at)
+      `;
+    }
+    const stmt = db.prepare(sql);
+    const result = stmt.run(row);
+    if (result instanceof Promise) {
+      await result;
+    }
   },
-  purgeExpired(nowIso: string) {
-    db.prepare(`DELETE FROM shopify_oauth_states WHERE expires_at < @now`).run({ now: nowIso });
+  async purgeExpired(nowIso: string) {
+    const stmt = db.prepare(`DELETE FROM shopify_oauth_states WHERE expires_at < @now`);
+    const result = stmt.run({ now: nowIso });
+    if (result instanceof Promise) {
+      await result;
+    }
   },
-  consume(state: string): ShopifyOAuthStateRow | undefined {
-    const row = db.prepare(`SELECT * FROM shopify_oauth_states WHERE state=@state`).get({ state }) as ShopifyOAuthStateRow | undefined;
+  async consume(state: string): Promise<ShopifyOAuthStateRow | undefined> {
+    const getStmt = db.prepare(`SELECT * FROM shopify_oauth_states WHERE state=@state`);
+    const getResult = getStmt.get({ state });
+    const row = (getResult instanceof Promise ? await getResult : getResult) as ShopifyOAuthStateRow | undefined;
+    
     if (row) {
-      db.prepare(`DELETE FROM shopify_oauth_states WHERE state=@state`).run({ state });
+      const deleteStmt = db.prepare(`DELETE FROM shopify_oauth_states WHERE state=@state`);
+      const deleteResult = deleteStmt.run({ state });
+      if (deleteResult instanceof Promise) {
+        await deleteResult;
+      }
     }
     return row;
   }
 };
 
 export const ConnectionRepo = {
-  insert(conn: Omit<ConnectionRow, 'created_at' | 'updated_at'>) {
+  async insert(conn: Omit<ConnectionRow, 'created_at' | 'updated_at'>) {
     const now = new Date().toISOString();
-    db.prepare(`INSERT INTO connections (id, installation_id, type, name, status, dest_shop_domain, dest_location_id, base_url, consumer_key, consumer_secret, access_token, rules_json, created_at, updated_at)
-      VALUES (@id, @installation_id, @type, @name, @status, @dest_shop_domain, @dest_location_id, @base_url, @consumer_key, @consumer_secret, @access_token, @rules_json, @created_at, @updated_at)`)
-      .run({ ...conn, created_at: now, updated_at: now });
+    const stmt = db.prepare(`INSERT INTO connections (id, installation_id, type, name, status, dest_shop_domain, dest_location_id, base_url, consumer_key, consumer_secret, access_token, rules_json, created_at, updated_at)
+      VALUES (@id, @installation_id, @type, @name, @status, @dest_shop_domain, @dest_location_id, @base_url, @consumer_key, @consumer_secret, @access_token, @rules_json, @created_at, @updated_at)`);
+    const result = stmt.run({ ...conn, created_at: now, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
   },
-  list(installation_id: string): ConnectionRow[] {
-    return db.prepare(`SELECT * FROM connections WHERE installation_id=@installation_id ORDER BY created_at DESC`)
-      .all({ installation_id }) as ConnectionRow[];
+  async list(installation_id: string): Promise<ConnectionRow[]> {
+    const stmt = db.prepare(`SELECT * FROM connections WHERE installation_id=@installation_id ORDER BY created_at DESC`);
+    const result = stmt.all({ installation_id });
+    return (result instanceof Promise ? await result : result) as ConnectionRow[];
   },
-  get(id: string): ConnectionRow | undefined {
-    return db.prepare(`SELECT * FROM connections WHERE id=@id`).get({ id }) as ConnectionRow | undefined;
+  async get(id: string): Promise<ConnectionRow | undefined> {
+    const stmt = db.prepare(`SELECT * FROM connections WHERE id=@id`);
+    const result = stmt.get({ id });
+    return (result instanceof Promise ? await result : result) as ConnectionRow | undefined;
   },
-  updateStatus(id: string, status: ConnectionRow['status']) {
+  async updateStatus(id: string, status: ConnectionRow['status']) {
     const now = new Date().toISOString();
-    db.prepare(`UPDATE connections SET status=@status, updated_at=@updated_at WHERE id=@id`).run({ id, status, updated_at: now });
+    const stmt = db.prepare(`UPDATE connections SET status=@status, updated_at=@updated_at WHERE id=@id`);
+    const result = stmt.run({ id, status, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
   },
-  updateLocationId(id: string, dest_location_id: string | null) {
+  async updateLocationId(id: string, dest_location_id: string | null) {
     const now = new Date().toISOString();
-    db.prepare(`UPDATE connections SET dest_location_id=@dest_location_id, updated_at=@updated_at WHERE id=@id`)
-      .run({ id, dest_location_id, updated_at: now });
+    const stmt = db.prepare(`UPDATE connections SET dest_location_id=@dest_location_id, updated_at=@updated_at WHERE id=@id`);
+    const result = stmt.run({ id, dest_location_id, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
   },
-  updateName(id: string, name: string) {
+  async updateName(id: string, name: string) {
     const now = new Date().toISOString();
-    db.prepare(`UPDATE connections SET name=@name, updated_at=@updated_at WHERE id=@id`)
-      .run({ id, name, updated_at: now });
+    const stmt = db.prepare(`UPDATE connections SET name=@name, updated_at=@updated_at WHERE id=@id`);
+    const result = stmt.run({ id, name, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
   },
-  updateRules(id: string, rules_json: string | null) {
+  async updateRules(id: string, rules_json: string | null) {
     const now = new Date().toISOString();
-    db.prepare(`UPDATE connections SET rules_json=@rules_json, updated_at=@updated_at WHERE id=@id`)
-      .run({ id, rules_json, updated_at: now });
+    const stmt = db.prepare(`UPDATE connections SET rules_json=@rules_json, updated_at=@updated_at WHERE id=@id`);
+    const result = stmt.run({ id, rules_json, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
   },
-  delete(id: string) {
-    db.prepare(`DELETE FROM connections WHERE id=@id`).run({ id });
+  async delete(id: string) {
+    const stmt = db.prepare(`DELETE FROM connections WHERE id=@id`);
+    const result = stmt.run({ id });
+    if (result instanceof Promise) {
+      await result;
+    }
   },
-  deleteAll(installation_id: string) {
-    db.prepare(`DELETE FROM connections WHERE installation_id=@installation_id`).run({ installation_id });
+  async deleteAll(installation_id: string) {
+    const stmt = db.prepare(`DELETE FROM connections WHERE installation_id=@installation_id`);
+    const result = stmt.run({ installation_id });
+    if (result instanceof Promise) {
+      await result;
+    }
+    // Return the number of deleted rows
+    const changes = result instanceof Promise ? (await result).changes : result.changes;
+    return changes;
   }
 };
 
 export const JobRepo = {
-  enqueue(job: Omit<JobRow, 'state' | 'attempts' | 'last_error' | 'created_at' | 'updated_at'>) {
+  async enqueue(job: Omit<JobRow, 'state' | 'attempts' | 'last_error' | 'created_at' | 'updated_at'>) {
     const now = new Date().toISOString();
-    db.prepare(`INSERT INTO jobs (id, connection_id, job_type, state, attempts, created_at, updated_at)
-      VALUES (@id, @connection_id, @job_type, 'queued', 0, @created_at, @updated_at)`)
-      .run({ ...job, created_at: now, updated_at: now });
+    const stmt = db.prepare(`INSERT INTO jobs (id, connection_id, job_type, state, attempts, created_at, updated_at)
+      VALUES (@id, @connection_id, @job_type, 'queued', 0, @created_at, @updated_at)`);
+    const result = stmt.run({ ...job, created_at: now, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
   },
-  get(id: string): JobRow | undefined {
-    return db.prepare(`SELECT * FROM jobs WHERE id=@id`).get({ id }) as JobRow | undefined;
+  async get(id: string): Promise<JobRow | undefined> {
+    const stmt = db.prepare(`SELECT * FROM jobs WHERE id=@id`);
+    const result = stmt.get({ id });
+    return (result instanceof Promise ? await result : result) as JobRow | undefined;
   },
-  pickNext(): JobRow | undefined {
-    const job = db.prepare(`SELECT * FROM jobs WHERE state='queued' ORDER BY created_at ASC LIMIT 1`).get() as JobRow | undefined;
+  async pickNext(): Promise<JobRow | undefined> {
+    const getStmt = db.prepare(`SELECT * FROM jobs WHERE state='queued' ORDER BY created_at ASC LIMIT 1`);
+    const getResult = getStmt.get();
+    const job = (getResult instanceof Promise ? await getResult : getResult) as JobRow | undefined;
+    
     if (!job) return undefined;
+    
     const now = new Date().toISOString();
-    db.prepare(`UPDATE jobs SET state='running', updated_at=@updated_at WHERE id=@id`).run({ id: job.id, updated_at: now });
+    const updateStmt = db.prepare(`UPDATE jobs SET state='running', updated_at=@updated_at WHERE id=@id`);
+    const updateResult = updateStmt.run({ id: job.id, updated_at: now });
+    if (updateResult instanceof Promise) {
+      await updateResult;
+    }
     return { ...job, state: 'running' };
   },
-  succeed(id: string) {
+  async succeed(id: string) {
     const now = new Date().toISOString();
-    db.prepare(`UPDATE jobs SET state='succeeded', updated_at=@updated_at WHERE id=@id`).run({ id, updated_at: now });
+    const stmt = db.prepare(`UPDATE jobs SET state='succeeded', updated_at=@updated_at WHERE id=@id`);
+    const result = stmt.run({ id, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
   },
-  fail(id: string, error: string, maxAttempts = 5) {
+  async fail(id: string, error: string, maxAttempts = 5) {
     const now = new Date().toISOString();
-    const row = db.prepare(`SELECT attempts FROM jobs WHERE id=@id`).get({ id }) as { attempts: number } | undefined;
+    const getStmt = db.prepare(`SELECT attempts FROM jobs WHERE id=@id`);
+    const getResult = getStmt.get({ id });
+    const row = (getResult instanceof Promise ? await getResult : getResult) as { attempts: number } | undefined;
     const attempts = (row?.attempts ?? 0) + 1;
+    
     if (attempts >= maxAttempts) {
-      db.prepare(`UPDATE jobs SET state='dead', last_error=@error, attempts=@attempts, updated_at=@updated_at WHERE id=@id`)
-        .run({ id, error, attempts, updated_at: now });
+      const stmt = db.prepare(`UPDATE jobs SET state='dead', last_error=@error, attempts=@attempts, updated_at=@updated_at WHERE id=@id`);
+      const result = stmt.run({ id, error, attempts, updated_at: now });
+      if (result instanceof Promise) {
+        await result;
+      }
       return;
     }
     // Mark failed, then requeue by setting state back to queued (simple retry)
-    db.prepare(`UPDATE jobs SET state='queued', last_error=@error, attempts=@attempts, updated_at=@updated_at WHERE id=@id`)
-      .run({ id, error, attempts, updated_at: now });
+    const stmt = db.prepare(`UPDATE jobs SET state='queued', last_error=@error, attempts=@attempts, updated_at=@updated_at WHERE id=@id`);
+    const result = stmt.run({ id, error, attempts, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
   },
-  list(limit = 100) {
-    return db.prepare(`SELECT * FROM jobs ORDER BY created_at DESC LIMIT @limit`).all({ limit }) as JobRow[];
+  async list(limit = 100): Promise<JobRow[]> {
+    const stmt = db.prepare(`SELECT * FROM jobs ORDER BY created_at DESC LIMIT @limit`);
+    const result = stmt.all({ limit });
+    return (result instanceof Promise ? await result : result) as JobRow[];
   }
 };
 
 export const JobItemRepo = {
-  addMany(job_id: string, skus: string[], action: JobItemRow['action'] = 'update') {
+  async addMany(job_id: string, skus: string[], action: JobItemRow['action'] = 'update') {
     const now = new Date().toISOString();
-    const stmt = db.prepare(`INSERT INTO job_items (id, job_id, sku, action, state, created_at, updated_at)
-      VALUES (@id, @job_id, @sku, @action, 'queued', @created_at, @updated_at)`);
-    const insertMany = db.transaction((rows: { id: string; job_id: string; sku: string; action: string; created_at: string; updated_at: string }[]) => {
-      for (const r of rows) stmt.run(r);
-    });
     const rows = skus.map((sku, idx) => ({
       id: `ji_${Date.now()}_${idx}_${Math.random().toString(36).slice(2,8)}`,
       job_id,
@@ -363,33 +479,51 @@ export const JobItemRepo = {
       created_at: now,
       updated_at: now
     }));
-    insertMany(rows);
+    
+    await db.transaction(async () => {
+      const stmt = db.prepare(`INSERT INTO job_items (id, job_id, sku, action, state, created_at, updated_at)
+        VALUES (@id, @job_id, @sku, @action, 'queued', @created_at, @updated_at)`);
+      for (const r of rows) {
+        const result = stmt.run(r);
+        if (result instanceof Promise) {
+          await result;
+        }
+      }
+    });
   },
-  listSkus(job_id: string): string[] {
-    const rows = db.prepare(`SELECT sku FROM job_items WHERE job_id=@job_id`).all({ job_id }) as { sku: string }[];
+  async listSkus(job_id: string): Promise<string[]> {
+    const stmt = db.prepare(`SELECT sku FROM job_items WHERE job_id=@job_id`);
+    const result = stmt.all({ job_id });
+    const rows = (result instanceof Promise ? await result : result) as { sku: string }[];
     return rows.map(r => r.sku);
   }
 };
 
 export const AuditRepo = {
-  write(entry: { id?: string; ts?: string; level: 'info' | 'warn' | 'error'; connection_id?: string | null; job_id?: string | null; sku?: string | null; message: string; meta?: any }) {
+  async write(entry: { id?: string; ts?: string; level: 'info' | 'warn' | 'error'; connection_id?: string | null; job_id?: string | null; sku?: string | null; message: string; meta?: any }) {
     const id = entry.id || `al_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
     const ts = entry.ts || new Date().toISOString();
     const meta = entry.meta ? JSON.stringify(entry.meta) : null;
-    db.prepare(`INSERT INTO audit_logs (id, ts, level, connection_id, job_id, sku, message, meta)
-      VALUES (@id, @ts, @level, @connection_id, @job_id, @sku, @message, @meta)`)
-      .run({ id, ts, level: entry.level, connection_id: entry.connection_id ?? null, job_id: entry.job_id ?? null, sku: entry.sku ?? null, message: entry.message, meta });
+    const stmt = db.prepare(`INSERT INTO audit_logs (id, ts, level, connection_id, job_id, sku, message, meta)
+      VALUES (@id, @ts, @level, @connection_id, @job_id, @sku, @message, @meta)`);
+    const result = stmt.run({ id, ts, level: entry.level, connection_id: entry.connection_id ?? null, job_id: entry.job_id ?? null, sku: entry.sku ?? null, message: entry.message, meta });
+    if (result instanceof Promise) {
+      await result;
+    }
   },
-  recent(limit = 200) {
-    return db.prepare(`SELECT * FROM audit_logs ORDER BY ts DESC LIMIT @limit`).all({ limit });
+  async recent(limit = 200) {
+    const stmt = db.prepare(`SELECT * FROM audit_logs ORDER BY ts DESC LIMIT @limit`);
+    const result = stmt.all({ limit });
+    return (result instanceof Promise ? await result : result);
   },
-  countSyncedSkus(connection_id: string): number {
-    const row = db.prepare(
+  async countSyncedSkus(connection_id: string): Promise<number> {
+    const stmt = db.prepare(
       `SELECT COUNT(DISTINCT sku) as count 
        FROM audit_logs 
        WHERE connection_id=@connection_id AND sku IS NOT NULL`
-    ).get({ connection_id }) as { count?: number } | undefined;
+    );
+    const result = stmt.get({ connection_id });
+    const row = (result instanceof Promise ? await result : result) as { count?: number } | undefined;
     return row?.count ?? 0;
   }
 };
-

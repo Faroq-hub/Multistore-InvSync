@@ -50,9 +50,26 @@ class SQLiteAdapter implements DbAdapter {
     };
   }
 
-  transaction(fn: () => void): void {
-    const transaction = this.db.transaction(fn);
+  async transaction(fn: () => void | Promise<void>): Promise<void> {
+    // SQLite transactions are synchronous
+    // better-sqlite3 requires a synchronous callback, but we support async for PostgreSQL compatibility
+    // Solution: Execute fn() synchronously inside the transaction
+    // Since SQLite operations are synchronous, any async/await in fn() are effectively no-ops
+    // The transaction completes synchronously, and we handle the promise outside if needed
+    let promiseResult: Promise<void> | undefined;
+    const transaction = this.db.transaction(() => {
+      // Execute fn() - for SQLite, all DB operations complete synchronously
+      // If fn() returns a promise, we capture it but don't await (can't in sync context)
+      const result = fn();
+      if (result instanceof Promise) {
+        promiseResult = result;
+      }
+    });
     transaction();
+    // If fn() returned a promise, await it (should resolve immediately for SQLite)
+    if (promiseResult) {
+      await promiseResult;
+    }
   }
 
   close(): void {

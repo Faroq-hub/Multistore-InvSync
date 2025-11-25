@@ -159,28 +159,28 @@ async function pushToWoo(connId: string, log: (m: string) => void, filterSkus?: 
 export function startPushWorker(log: (m: string) => void) {
   async function loop() {
     try {
-      const job = JobRepo.pickNext();
+      const job = await JobRepo.pickNext();
       if (!job) {
         setTimeout(loop, 1000);
         return;
       }
       log(`Processing job ${job.id} (${job.job_type}) for connection ${job.connection_id}`);
-      const conn = ConnectionRepo.get(job.connection_id);
+      const conn = await ConnectionRepo.get(job.connection_id);
       if (!conn) {
-        JobRepo.fail(job.id, 'Connection not found');
+        await JobRepo.fail(job.id, 'Connection not found');
         return setImmediate(loop);
       }
       try {
         // For delta jobs, scope to job_items.SKUs
-        const skus = job.job_type === 'delta' ? new Set<string>(JobItemRepo.listSkus(job.id)) : undefined;
+        const skus = job.job_type === 'delta' ? new Set<string>(await JobItemRepo.listSkus(job.id)) : undefined;
         if (conn.type === 'shopify') {
           await pushToShopify(conn.id, (m) => log(`[shopify:${conn.id}] ${m}`), skus);
         } else {
           await pushToWoo(conn.id, (m) => log(`[woo:${conn.id}] ${m}`), skus);
         }
-        JobRepo.succeed(job.id);
+        await JobRepo.succeed(job.id);
       } catch (err: any) {
-        JobRepo.fail(job.id, err?.message || String(err));
+        await JobRepo.fail(job.id, err?.message || String(err));
         // Simple backoff before next iteration after a failure
         await new Promise(r => setTimeout(r, 1000));
       }

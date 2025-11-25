@@ -48,16 +48,16 @@ export default async function webhookRoutes(app: FastifyInstance) {
     // Enqueue delta jobs for all active connections (if SKUs present), else full sync
     try {
       const domain = process.env.SHOPIFY_SHOP_DOMAIN!;
-      const ins = InstallationRepo.getByDomain(domain);
+      const ins = await InstallationRepo.getByDomain(domain);
       if (ins) {
-        const conns = ConnectionRepo.list(ins.id).filter(c => c.status === 'active');
+        const conns = (await ConnectionRepo.list(ins.id)).filter(c => c.status === 'active');
         for (const c of conns) {
           const jobId = ulid();
           if (skus.length > 0) {
-            JobRepo.enqueue({ id: jobId, connection_id: c.id, job_type: 'delta' });
-            JobItemRepo.addMany(jobId, skus, 'update');
+            await JobRepo.enqueue({ id: jobId, connection_id: c.id, job_type: 'delta' });
+            await JobItemRepo.addMany(jobId, skus, 'update');
           } else {
-            JobRepo.enqueue({ id: jobId, connection_id: c.id, job_type: 'full_sync' });
+            await JobRepo.enqueue({ id: jobId, connection_id: c.id, job_type: 'full_sync' });
           }
         }
       }
@@ -74,12 +74,12 @@ export default async function webhookRoutes(app: FastifyInstance) {
     refreshFeedNow().catch(err => app.log.error({ err }, 'Woo webhook refresh failed'));
     try {
       const domain = process.env.SHOPIFY_SHOP_DOMAIN!;
-      const ins = InstallationRepo.getByDomain(domain);
+      const ins = await InstallationRepo.getByDomain(domain);
       if (ins) {
-        const conns = ConnectionRepo.list(ins.id).filter(c => c.status === 'active');
+        const conns = (await ConnectionRepo.list(ins.id)).filter(c => c.status === 'active');
         for (const c of conns) {
           const jobId = ulid();
-          JobRepo.enqueue({ id: jobId, connection_id: c.id, job_type: 'full_sync' });
+          await JobRepo.enqueue({ id: jobId, connection_id: c.id, job_type: 'full_sync' });
         }
       }
     } catch (err) {

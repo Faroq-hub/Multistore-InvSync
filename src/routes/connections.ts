@@ -8,15 +8,15 @@ export default async function connectionsRoutes(app: FastifyInstance) {
   app.post('/admin/installations/upsert', { preHandler: requireAdmin }, async (_req, reply) => {
     const domain = process.env.SHOPIFY_SHOP_DOMAIN;
     if (!domain) return reply.code(400).send({ code: 'bad_request', message: 'SHOPIFY_SHOP_DOMAIN not set' });
-    const id = InstallationRepo.upsert(domain, process.env.SHOPIFY_ADMIN_ACCESS_TOKEN || null, null);
+    const id = await InstallationRepo.upsert(domain, process.env.SHOPIFY_ADMIN_ACCESS_TOKEN || null, null);
     reply.send({ id, shop_domain: domain });
   });
 
   app.get('/admin/connections', { preHandler: requireAdmin }, async (_req, reply) => {
     const domain = process.env.SHOPIFY_SHOP_DOMAIN!;
-    const ins = InstallationRepo.getByDomain(domain);
+    const ins = await InstallationRepo.getByDomain(domain);
     if (!ins) return reply.code(404).send({ code: 'not_found', message: 'Installation not found' });
-    const list = ConnectionRepo.list(ins.id);
+    const list = await ConnectionRepo.list(ins.id);
     reply.send({ connections: list });
   });
 
@@ -30,9 +30,9 @@ export default async function connectionsRoutes(app: FastifyInstance) {
       return reply.code(400).send({ code: 'bad_request', message: 'name, dest_shop_domain, access_token required' });
     }
     const domain = process.env.SHOPIFY_SHOP_DOMAIN!;
-    const ins = InstallationRepo.getByDomain(domain);
+    const ins = await InstallationRepo.getByDomain(domain);
     if (!ins) return reply.code(404).send({ code: 'not_found', message: 'Installation not found' });
-    ConnectionRepo.insert({
+    await ConnectionRepo.insert({
       id: ulid(),
       installation_id: ins.id,
       type: 'shopify',
@@ -59,9 +59,9 @@ export default async function connectionsRoutes(app: FastifyInstance) {
       return reply.code(400).send({ code: 'bad_request', message: 'name, base_url, consumer_key, consumer_secret required' });
     }
     const domain = process.env.SHOPIFY_SHOP_DOMAIN!;
-    const ins = InstallationRepo.getByDomain(domain);
+    const ins = await InstallationRepo.getByDomain(domain);
     if (!ins) return reply.code(404).send({ code: 'not_found', message: 'Installation not found' });
-    ConnectionRepo.insert({
+    await ConnectionRepo.insert({
       id: ulid(),
       installation_id: ins.id,
       type: 'woocommerce',
@@ -81,64 +81,52 @@ export default async function connectionsRoutes(app: FastifyInstance) {
   // Trigger full sync job for a connection
   app.post('/admin/connections/:id/full-sync', { preHandler: requireAdmin }, async (req, reply) => {
     const { id } = req.params as any;
-    const conn = ConnectionRepo.get(id);
+    const conn = await ConnectionRepo.get(id);
     if (!conn) return reply.code(404).send({ code: 'not_found', message: 'Connection not found' });
-    JobRepo.enqueue({ id: ulid(), connection_id: id, job_type: 'full_sync' });
+    await JobRepo.enqueue({ id: ulid(), connection_id: id, job_type: 'full_sync' });
     reply.send({ ok: true, enqueued: true });
   });
 
   // Update connection rules (e.g., price_multiplier)
   app.post('/admin/connections/:id/rules', { preHandler: requireAdmin }, async (req, reply) => {
     const { id } = req.params as any;
-    const conn = ConnectionRepo.get(id);
+    const conn = await ConnectionRepo.get(id);
     if (!conn) return reply.code(404).send({ code: 'not_found', message: 'Connection not found' });
     const rules = (req.body as any) ?? {};
-    const now = new Date().toISOString();
     app.log.info({ id, rules }, 'Updating connection rules');
-    // Persist rules_json
-    (ConnectionRepo as any).updateRules = (ConnectionRepo as any).updateRules || function updateRules(id: string, rules_json: string) {
-      (app as any).db?.prepare?.(`UPDATE connections SET rules_json=?, updated_at=? WHERE id=?`).run?.(rules_json, now, id);
-    };
-    // Fallback: run update with shared db
-    try {
-      const { db } = await import('../db.js');
-      db.prepare(`UPDATE connections SET rules_json=@rules_json, updated_at=@updated_at WHERE id=@id`)
-        .run({ id, rules_json: JSON.stringify(rules), updated_at: now });
-    } catch {
-      (ConnectionRepo as any).updateRules(id, JSON.stringify(rules));
-    }
+    await ConnectionRepo.updateRules(id, JSON.stringify(rules));
     reply.send({ ok: true });
   });
 
   // Pause a connection
   app.post('/admin/connections/:id/pause', { preHandler: requireAdmin }, async (req, reply) => {
     const { id } = req.params as any;
-    const conn = ConnectionRepo.get(id);
+    const conn = await ConnectionRepo.get(id);
     if (!conn) return reply.code(404).send({ code: 'not_found', message: 'Connection not found' });
-    ConnectionRepo.updateStatus(id, 'paused');
+    await ConnectionRepo.updateStatus(id, 'paused');
     reply.send({ ok: true, status: 'paused' });
   });
 
   // Resume a connection
   app.post('/admin/connections/:id/resume', { preHandler: requireAdmin }, async (req, reply) => {
     const { id } = req.params as any;
-    const conn = ConnectionRepo.get(id);
+    const conn = await ConnectionRepo.get(id);
     if (!conn) return reply.code(404).send({ code: 'not_found', message: 'Connection not found' });
-    ConnectionRepo.updateStatus(id, 'active');
+    await ConnectionRepo.updateStatus(id, 'active');
     reply.send({ ok: true, status: 'active' });
   });
 
   // Enqueue delta job with provided SKUs
   app.post('/admin/connections/:id/delta', { preHandler: requireAdmin }, async (req, reply) => {
     const { id } = req.params as any;
-    const conn = ConnectionRepo.get(id);
+    const conn = await ConnectionRepo.get(id);
     if (!conn) return reply.code(404).send({ code: 'not_found', message: 'Connection not found' });
     const body = req.body as any;
     const skus: string[] = Array.isArray(body?.skus) ? body.skus.map((s: any) => String(s).trim()).filter(Boolean) : [];
     if (skus.length === 0) return reply.code(400).send({ code: 'bad_request', message: 'skus[] required' });
     const jobId = ulid();
-    JobRepo.enqueue({ id: jobId, connection_id: id, job_type: 'delta' });
-    JobItemRepo.addMany(jobId, skus, 'update');
+    await JobRepo.enqueue({ id: jobId, connection_id: id, job_type: 'delta' });
+    await JobItemRepo.addMany(jobId, skus, 'update');
     reply.send({ ok: true, enqueued: true, job_id: jobId, count: skus.length });
   });
 }
