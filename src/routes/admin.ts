@@ -18,7 +18,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   });
 
   app.get('/admin/resellers', { preHandler: requireAdmin }, async (_req, reply) => {
-    const list = ResellerRepo.list().map(r => ({
+    const list = (await ResellerRepo.list()).map((r: any) => ({
       id: r.id,
       name: r.name,
       status: r.status,
@@ -40,7 +40,7 @@ export default async function adminRoutes(app: FastifyInstance) {
     const { salt, hash, last4 } = hashApiKey(apiKey);
 
     const id = ulid();
-    ResellerRepo.insert({
+    await ResellerRepo.insert({
       id,
       name,
       status: 'active',
@@ -57,7 +57,7 @@ export default async function adminRoutes(app: FastifyInstance) {
     const { id } = req.params as any;
     const apiKey = generateApiKey(40);
     const { salt, hash, last4 } = hashApiKey(apiKey);
-    ResellerRepo.updateKey(id, salt, hash, last4);
+    await ResellerRepo.updateKey(id, salt, hash, last4);
     reply.send({ id, api_key: apiKey, last4 });
   });
 }

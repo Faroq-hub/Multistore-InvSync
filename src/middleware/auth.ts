@@ -13,7 +13,7 @@ export async function requireApiKey(request: FastifyRequest, reply: FastifyReply
   }
 
   const last4 = providedKey.slice(-4);
-  const candidates = ResellerRepo.findActiveByLast4(last4);
+  const candidates = await ResellerRepo.findActiveByLast4(last4);
 
   // Allow default test key fallback if configured but not in DB
   if (!candidates.length && config.defaultTestApiKey && providedKey === config.defaultTestApiKey) {

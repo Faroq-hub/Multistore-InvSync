@@ -36,7 +36,7 @@ function applyRules(item: CatalogItem, rulesJson: string | null): CatalogItem {
 }
 
 async function pushToShopify(connId: string, log: (m: string) => void, filterSkus?: Set<string>) {
-  const conn = ConnectionRepo.get(connId);
+  const conn = await ConnectionRepo.get(connId);
   if (!conn || !conn.dest_shop_domain || !conn.access_token) throw new Error('Invalid Shopify connection');
   const items = await getSourceItems(filterSkus);
 
@@ -59,7 +59,7 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
       if (!v) {
         const msg = `Shopify dest missing SKU (create not implemented)`;
         log(`${msg}: ${item.sku}`);
-        AuditRepo.write({ level: 'warn', connection_id: conn.id, job_id: undefined, sku: item.sku, message: msg });
+        await AuditRepo.write({ level: 'warn', connection_id: conn.id, job_id: undefined, sku: item.sku, message: msg });
         continue;
       }
       // Update price if needed
@@ -70,7 +70,7 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
         await fetch(upUrl, { method: 'PUT', headers, body: JSON.stringify({ variant: { id: v.id, price: desiredPrice } }) });
         const msg = `Price updated ${currentPrice} -> ${desiredPrice}`;
         log(`${msg} (${item.sku})`);
-        AuditRepo.write({ level: 'info', connection_id: conn.id, sku: item.sku, message: msg });
+        await AuditRepo.write({ level: 'info', connection_id: conn.id, sku: item.sku, message: msg });
       }
       // Update inventory if location provided
       if (conn.dest_location_id && v.inventory_item_id != null && item.stock != null) {
@@ -86,19 +86,19 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
         });
         const msg = `Stock set -> ${item.stock}`;
         log(`${msg} (${item.sku})`);
-        AuditRepo.write({ level: 'info', connection_id: conn.id, sku: item.sku, message: msg });
+        await AuditRepo.write({ level: 'info', connection_id: conn.id, sku: item.sku, message: msg });
       }
       await sleep(250);
     } catch (e: any) {
       const emsg = `Error pushing SKU: ${e?.message || e}`;
       log(`${emsg} (${item.sku})`);
-      AuditRepo.write({ level: 'error', connection_id: conn.id, sku: item.sku, message: emsg });
+      await AuditRepo.write({ level: 'error', connection_id: conn.id, sku: item.sku, message: emsg });
     }
   }
 }
 
 async function pushToWoo(connId: string, log: (m: string) => void, filterSkus?: Set<string>) {
-  const conn = ConnectionRepo.get(connId);
+  const conn = await ConnectionRepo.get(connId);
   if (!conn || !conn.base_url || !conn.consumer_key || !conn.consumer_secret) throw new Error('Invalid Woo connection');
   const items = await getSourceItems(filterSkus);
 
@@ -146,12 +146,12 @@ async function pushToWoo(connId: string, log: (m: string) => void, filterSkus?: 
       }
       const msg = `Woo updated`;
       log(`${msg} (${item.sku})`);
-      AuditRepo.write({ level: 'info', connection_id: conn.id, sku: item.sku, message: msg });
+      await AuditRepo.write({ level: 'info', connection_id: conn.id, sku: item.sku, message: msg });
       await sleep(250);
     } catch (e: any) {
       const emsg = `Woo error: ${e?.message || e}`;
       log(`${emsg} (${item.sku})`);
-      AuditRepo.write({ level: 'error', connection_id: conn.id, sku: item.sku, message: emsg });
+      await AuditRepo.write({ level: 'error', connection_id: conn.id, sku: item.sku, message: emsg });
     }
   }
 }
