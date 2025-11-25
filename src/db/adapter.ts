@@ -4,10 +4,22 @@
  * Set DATABASE_URL environment variable for PostgreSQL, otherwise uses SQLite
  */
 
-import Database from 'better-sqlite3';
 import { Pool, Client } from 'pg';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
+
+// Dynamically import better-sqlite3 only when needed (not in production with PostgreSQL)
+let Database: any;
+function getSQLiteDatabase() {
+  if (!Database) {
+    try {
+      Database = require('better-sqlite3');
+    } catch (err) {
+      throw new Error('better-sqlite3 is not available. Install it for SQLite support or use PostgreSQL with DATABASE_URL.');
+    }
+  }
+  return Database;
+}
 
 export interface DbAdapter {
   exec(sql: string): void | Promise<void>;
@@ -23,11 +35,12 @@ export interface PreparedStatement {
 }
 
 class SQLiteAdapter implements DbAdapter {
-  private db: Database.Database;
+  private db: any;
 
   constructor(dbPath: string) {
     mkdirSync(join(process.cwd(), 'data'), { recursive: true });
-    this.db = new Database(dbPath);
+    const SQLiteDB = getSQLiteDatabase();
+    this.db = new SQLiteDB(dbPath);
   }
 
   exec(sql: string): void {
@@ -211,9 +224,17 @@ export function createDbAdapter(): DbAdapter {
     console.log('[DB] Using PostgreSQL database');
     return new PostgreSQLAdapter(databaseUrl);
   } else {
+    // Only use SQLite if DATABASE_URL is not set (development)
     const dbPath = join(process.cwd(), 'data', 'app.db');
     console.log('[DB] Using SQLite database:', dbPath);
-    return new SQLiteAdapter(dbPath);
+    try {
+      return new SQLiteAdapter(dbPath);
+    } catch (err: any) {
+      if (err.message.includes('better-sqlite3')) {
+        throw new Error('SQLite is not available. Please set DATABASE_URL for PostgreSQL or install better-sqlite3 for SQLite support.');
+      }
+      throw err;
+    }
   }
 }
 
