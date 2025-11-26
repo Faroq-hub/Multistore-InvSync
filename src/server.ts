@@ -29,19 +29,31 @@ export function buildServer() {
   app.register(etag);
   app.register(rateLimit, { max: 120, timeWindow: '1 minute' });
 
-  // DB migrations (async, but we'll run it in onReady hook)
-  app.addHook('onReady', async () => {
-    await migrate();
-    startScheduler((msg) => app.log.info(msg));
-    startPushWorker((msg) => app.log.info(msg));
-  });
-
+  // Register routes first (health endpoint must be available immediately)
   app.register(feedRoutes);
   app.register(adminRoutes);
   app.register(webhookRoutes);
   app.register(connectionsRoutes);
   app.register(jobsRoutes);
   app.register(auditRoutes);
+  
+  // DB migrations and background workers (run after server is ready, non-blocking)
+  app.addHook('onReady', async () => {
+    try {
+      await migrate();
+      app.log.info('[DB] Migration completed');
+    } catch (err) {
+      app.log.error('[DB] Migration failed:', err);
+      // Don't crash the server if migration fails - it might already be migrated
+    }
+    
+    try {
+      startScheduler((msg) => app.log.info(msg));
+      startPushWorker((msg) => app.log.info(msg));
+    } catch (err) {
+      app.log.error('[Worker] Failed to start background workers:', err);
+    }
+  });
 
   return app;
 }
