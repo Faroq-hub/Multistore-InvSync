@@ -1,10 +1,16 @@
-import fetch from 'node-fetch';
 import { config } from '../config';
 import { CatalogItem } from '../models/types';
+
+// Dynamic import for node-fetch (ESM module)
+const getFetch = async () => {
+  const { default: fetch } = await import('node-fetch');
+  return fetch;
+};
 
 export async function fetchWooCatalog(): Promise<CatalogItem[]> {
   if (!config.woo.baseUrl || !config.woo.consumerKey || !config.woo.consumerSecret) return [];
 
+  const fetch = await getFetch();
   const authParams = new URLSearchParams({
     consumer_key: config.woo.consumerKey,
     consumer_secret: config.woo.consumerSecret,

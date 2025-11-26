@@ -1,6 +1,11 @@
-import fetch from 'node-fetch';
 import { config } from '../config';
 import { CatalogItem } from '../models/types';
+
+// Dynamic import for node-fetch (ESM module)
+const getFetch = async () => {
+  const { default: fetch } = await import('node-fetch');
+  return fetch;
+};
 
 type ShopifyProductVariant = {
   id: string;
@@ -31,6 +36,7 @@ export async function fetchShopifyCatalog(): Promise<CatalogItem[]> {
   const items: CatalogItem[] = [];
   let pageUrl: string | null = url;
 
+  const fetch = await getFetch();
   while (pageUrl) {
     const res = await fetch(pageUrl, {
       headers: {
