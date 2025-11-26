@@ -43,7 +43,8 @@ export function buildServer() {
       await migrate();
       app.log.info('[DB] Migration completed');
     } catch (err) {
-      app.log.error('[DB] Migration failed:', err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      app.log.error({ err }, '[DB] Migration failed: ' + errorMessage);
       // Don't crash the server if migration fails - it might already be migrated
     }
     
@@ -51,7 +52,8 @@ export function buildServer() {
       startScheduler((msg) => app.log.info(msg));
       startPushWorker((msg) => app.log.info(msg));
     } catch (err) {
-      app.log.error('[Worker] Failed to start background workers:', err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      app.log.error({ err }, '[Worker] Failed to start background workers: ' + errorMessage);
     }
   });
 

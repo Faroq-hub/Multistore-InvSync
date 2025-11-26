@@ -7,7 +7,8 @@ async function main() {
     await app.listen({ port: config.port, host: '0.0.0.0' });
     app.log.info(`Server listening on ${config.port}`);
   } catch (err) {
-    app.log.error('Failed to start server:', err);
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    app.log.error({ err }, 'Failed to start server: ' + errorMessage);
     process.exit(1);
   }
 }
