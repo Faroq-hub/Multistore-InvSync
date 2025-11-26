@@ -5,7 +5,7 @@
     "buildCommand": "npm run build"
   },
   "deploy": {
-    "startCommand": "echo '[Startup] Building...' && npm run build && echo '[Startup] Build complete, checking dist...' && ls -la dist/ && echo '[Startup] Starting server...' && node dist/index.js",
+    "startCommand": "echo '[Startup] Building...' && npm run build && echo '[Startup] Build complete, checking dist...' && ls -la dist/ && echo '[Startup] Checking for index.js...' && (test -f dist/index.js && echo '[Startup] ✓ index.js found' || echo '[Startup] ✗ index.js NOT FOUND') && echo '[Startup] Listing all .js files in dist:' && find dist -name '*.js' -type f | head -10 && echo '[Startup] Starting server...' && node dist/index.js",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
