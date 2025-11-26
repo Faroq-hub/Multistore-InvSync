@@ -2,12 +2,23 @@ import { createDbAdapter, type DbAdapter } from './db/adapter';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 
-// Initialize database adapter (SQLite or PostgreSQL)
-const db: DbAdapter = createDbAdapter();
+// Lazy initialization of database adapter to avoid blocking startup
+let db: DbAdapter | null = null;
+function getDb(): DbAdapter {
+  if (!db) {
+    try {
+      db = createDbAdapter();
+    } catch (err) {
+      console.error('[DB] Failed to create database adapter:', err);
+      throw err;
+    }
+  }
+  return db;
+}
 
 // Helper to handle both sync and async exec
 async function execMigration(sql: string): Promise<void> {
-  const result = db.exec(sql);
+  const result = getDb().exec(sql);
   if (result instanceof Promise) {
     await result;
   }
@@ -156,7 +167,7 @@ export type ResellerRow = {
 export const ResellerRepo = {
   async insert(reseller: Omit<ResellerRow, 'created_at' | 'updated_at'>) {
     const now = new Date().toISOString();
-    const stmt = db.prepare(`
+    const stmt = getDb().prepare(`
       INSERT INTO resellers (id, name, status, api_key_salt, api_key_hash, last4, version, created_at, updated_at)
       VALUES (@id, @name, @status, @api_key_salt, @api_key_hash, @last4, @version, @created_at, @updated_at)
     `);
@@ -167,7 +178,7 @@ export const ResellerRepo = {
   },
   async updateKey(id: string, api_key_salt: string, api_key_hash: string, last4: string) {
     const now = new Date().toISOString();
-    const stmt = db.prepare(`
+    const stmt = getDb().prepare(`
       UPDATE resellers SET api_key_salt=@api_key_salt, api_key_hash=@api_key_hash, last4=@last4, updated_at=@updated_at
       WHERE id=@id
     `);
@@ -177,12 +188,12 @@ export const ResellerRepo = {
     }
   },
   async findActiveByLast4(last4: string): Promise<ResellerRow[]> {
-    const stmt = db.prepare(`SELECT * FROM resellers WHERE status='active' AND last4=@last4`);
+    const stmt = getDb().prepare(`SELECT * FROM resellers WHERE status='active' AND last4=@last4`);
     const result = stmt.all({ last4 });
     return (result instanceof Promise ? await result : result) as ResellerRow[];
   },
   async list(): Promise<ResellerRow[]> {
-    const stmt = db.prepare(`SELECT * FROM resellers ORDER BY created_at DESC`);
+    const stmt = getDb().prepare(`SELECT * FROM resellers ORDER BY created_at DESC`);
     const result = stmt.all();
     return (result instanceof Promise ? await result : result) as ResellerRow[];
   }
@@ -241,12 +252,12 @@ export type JobItemRow = {
 export const InstallationRepo = {
   async upsert(shop_domain: string, access_token?: string | null, scopes?: string | null) {
     const now = new Date().toISOString();
-    const getStmt = db.prepare(`SELECT * FROM installations WHERE shop_domain=@shop_domain`);
+    const getStmt = getDb().prepare(`SELECT * FROM installations WHERE shop_domain=@shop_domain`);
     const getResult = getStmt.get({ shop_domain });
     const exist = (getResult instanceof Promise ? await getResult : getResult) as InstallationRow | undefined;
     
     if (exist) {
-      const updateStmt = db.prepare(`UPDATE installations SET access_token=@access_token, scopes=@scopes, updated_at=@updated_at WHERE shop_domain=@shop_domain`);
+      const updateStmt = getDb().prepare(`UPDATE installations SET access_token=@access_token, scopes=@scopes, updated_at=@updated_at WHERE shop_domain=@shop_domain`);
       const updateResult = updateStmt.run({ shop_domain, access_token: access_token ?? exist.access_token, scopes: scopes ?? exist.scopes, updated_at: now });
       if (updateResult instanceof Promise) {
         await updateResult;
@@ -254,7 +265,7 @@ export const InstallationRepo = {
       return exist.id;
     }
     const id = `ins_${Date.now()}`;
-    const insertStmt = db.prepare(`INSERT INTO installations (id, shop_domain, access_token, scopes, status, created_at, updated_at)
+    const insertStmt = getDb().prepare(`INSERT INTO installations (id, shop_domain, access_token, scopes, status, created_at, updated_at)
       VALUES (@id, @shop_domain, @access_token, @scopes, 'active', @created_at, @updated_at)`);
     const insertResult = insertStmt.run({ id, shop_domain, access_token: access_token ?? null, scopes: scopes ?? null, created_at: now, updated_at: now });
     if (insertResult instanceof Promise) {
@@ -263,12 +274,12 @@ export const InstallationRepo = {
     return id;
   },
   async getByDomain(shop_domain: string): Promise<InstallationRow | undefined> {
-    const stmt = db.prepare(`SELECT * FROM installations WHERE shop_domain=@shop_domain`);
+    const stmt = getDb().prepare(`SELECT * FROM installations WHERE shop_domain=@shop_domain`);
     const result = stmt.get({ shop_domain });
     return (result instanceof Promise ? await result : result) as InstallationRow | undefined;
   },
   async getById(id: string): Promise<InstallationRow | undefined> {
-    const stmt = db.prepare(`SELECT * FROM installations WHERE id=@id`);
+    const stmt = getDb().prepare(`SELECT * FROM installations WHERE id=@id`);
     const result = stmt.get({ id });
     return (result instanceof Promise ? await result : result) as InstallationRow | undefined;
   }
@@ -301,26 +312,26 @@ export const ShopifyOAuthStateRepo = {
         VALUES (@state, @shop_domain, @created_at, @expires_at)
       `;
     }
-    const stmt = db.prepare(sql);
+    const stmt = getDb().prepare(sql);
     const result = stmt.run(row);
     if (result instanceof Promise) {
       await result;
     }
   },
   async purgeExpired(nowIso: string) {
-    const stmt = db.prepare(`DELETE FROM shopify_oauth_states WHERE expires_at < @now`);
+    const stmt = getDb().prepare(`DELETE FROM shopify_oauth_states WHERE expires_at < @now`);
     const result = stmt.run({ now: nowIso });
     if (result instanceof Promise) {
       await result;
     }
   },
   async consume(state: string): Promise<ShopifyOAuthStateRow | undefined> {
-    const getStmt = db.prepare(`SELECT * FROM shopify_oauth_states WHERE state=@state`);
+    const getStmt = getDb().prepare(`SELECT * FROM shopify_oauth_states WHERE state=@state`);
     const getResult = getStmt.get({ state });
     const row = (getResult instanceof Promise ? await getResult : getResult) as ShopifyOAuthStateRow | undefined;
     
     if (row) {
-      const deleteStmt = db.prepare(`DELETE FROM shopify_oauth_states WHERE state=@state`);
+      const deleteStmt = getDb().prepare(`DELETE FROM shopify_oauth_states WHERE state=@state`);
       const deleteResult = deleteStmt.run({ state });
       if (deleteResult instanceof Promise) {
         await deleteResult;
@@ -333,7 +344,7 @@ export const ShopifyOAuthStateRepo = {
 export const ConnectionRepo = {
   async insert(conn: Omit<ConnectionRow, 'created_at' | 'updated_at'>) {
     const now = new Date().toISOString();
-    const stmt = db.prepare(`INSERT INTO connections (id, installation_id, type, name, status, dest_shop_domain, dest_location_id, base_url, consumer_key, consumer_secret, access_token, rules_json, created_at, updated_at)
+    const stmt = getDb().prepare(`INSERT INTO connections (id, installation_id, type, name, status, dest_shop_domain, dest_location_id, base_url, consumer_key, consumer_secret, access_token, rules_json, created_at, updated_at)
       VALUES (@id, @installation_id, @type, @name, @status, @dest_shop_domain, @dest_location_id, @base_url, @consumer_key, @consumer_secret, @access_token, @rules_json, @created_at, @updated_at)`);
     const result = stmt.run({ ...conn, created_at: now, updated_at: now });
     if (result instanceof Promise) {
@@ -341,18 +352,18 @@ export const ConnectionRepo = {
     }
   },
   async list(installation_id: string): Promise<ConnectionRow[]> {
-    const stmt = db.prepare(`SELECT * FROM connections WHERE installation_id=@installation_id ORDER BY created_at DESC`);
+    const stmt = getDb().prepare(`SELECT * FROM connections WHERE installation_id=@installation_id ORDER BY created_at DESC`);
     const result = stmt.all({ installation_id });
     return (result instanceof Promise ? await result : result) as ConnectionRow[];
   },
   async get(id: string): Promise<ConnectionRow | undefined> {
-    const stmt = db.prepare(`SELECT * FROM connections WHERE id=@id`);
+    const stmt = getDb().prepare(`SELECT * FROM connections WHERE id=@id`);
     const result = stmt.get({ id });
     return (result instanceof Promise ? await result : result) as ConnectionRow | undefined;
   },
   async updateStatus(id: string, status: ConnectionRow['status']) {
     const now = new Date().toISOString();
-    const stmt = db.prepare(`UPDATE connections SET status=@status, updated_at=@updated_at WHERE id=@id`);
+    const stmt = getDb().prepare(`UPDATE connections SET status=@status, updated_at=@updated_at WHERE id=@id`);
     const result = stmt.run({ id, status, updated_at: now });
     if (result instanceof Promise) {
       await result;
@@ -360,7 +371,7 @@ export const ConnectionRepo = {
   },
   async updateLocationId(id: string, dest_location_id: string | null) {
     const now = new Date().toISOString();
-    const stmt = db.prepare(`UPDATE connections SET dest_location_id=@dest_location_id, updated_at=@updated_at WHERE id=@id`);
+    const stmt = getDb().prepare(`UPDATE connections SET dest_location_id=@dest_location_id, updated_at=@updated_at WHERE id=@id`);
     const result = stmt.run({ id, dest_location_id, updated_at: now });
     if (result instanceof Promise) {
       await result;
@@ -368,7 +379,7 @@ export const ConnectionRepo = {
   },
   async updateName(id: string, name: string) {
     const now = new Date().toISOString();
-    const stmt = db.prepare(`UPDATE connections SET name=@name, updated_at=@updated_at WHERE id=@id`);
+    const stmt = getDb().prepare(`UPDATE connections SET name=@name, updated_at=@updated_at WHERE id=@id`);
     const result = stmt.run({ id, name, updated_at: now });
     if (result instanceof Promise) {
       await result;
@@ -376,21 +387,21 @@ export const ConnectionRepo = {
   },
   async updateRules(id: string, rules_json: string | null) {
     const now = new Date().toISOString();
-    const stmt = db.prepare(`UPDATE connections SET rules_json=@rules_json, updated_at=@updated_at WHERE id=@id`);
+    const stmt = getDb().prepare(`UPDATE connections SET rules_json=@rules_json, updated_at=@updated_at WHERE id=@id`);
     const result = stmt.run({ id, rules_json, updated_at: now });
     if (result instanceof Promise) {
       await result;
     }
   },
   async delete(id: string) {
-    const stmt = db.prepare(`DELETE FROM connections WHERE id=@id`);
+    const stmt = getDb().prepare(`DELETE FROM connections WHERE id=@id`);
     const result = stmt.run({ id });
     if (result instanceof Promise) {
       await result;
     }
   },
   async deleteAll(installation_id: string) {
-    const stmt = db.prepare(`DELETE FROM connections WHERE installation_id=@installation_id`);
+    const stmt = getDb().prepare(`DELETE FROM connections WHERE installation_id=@installation_id`);
     const result = stmt.run({ installation_id });
     if (result instanceof Promise) {
       await result;
@@ -404,7 +415,7 @@ export const ConnectionRepo = {
 export const JobRepo = {
   async enqueue(job: Omit<JobRow, 'state' | 'attempts' | 'last_error' | 'created_at' | 'updated_at'>) {
     const now = new Date().toISOString();
-    const stmt = db.prepare(`INSERT INTO jobs (id, connection_id, job_type, state, attempts, created_at, updated_at)
+    const stmt = getDb().prepare(`INSERT INTO jobs (id, connection_id, job_type, state, attempts, created_at, updated_at)
       VALUES (@id, @connection_id, @job_type, 'queued', 0, @created_at, @updated_at)`);
     const result = stmt.run({ ...job, created_at: now, updated_at: now });
     if (result instanceof Promise) {
@@ -412,19 +423,19 @@ export const JobRepo = {
     }
   },
   async get(id: string): Promise<JobRow | undefined> {
-    const stmt = db.prepare(`SELECT * FROM jobs WHERE id=@id`);
+    const stmt = getDb().prepare(`SELECT * FROM jobs WHERE id=@id`);
     const result = stmt.get({ id });
     return (result instanceof Promise ? await result : result) as JobRow | undefined;
   },
   async pickNext(): Promise<JobRow | undefined> {
-    const getStmt = db.prepare(`SELECT * FROM jobs WHERE state='queued' ORDER BY created_at ASC LIMIT 1`);
+    const getStmt = getDb().prepare(`SELECT * FROM jobs WHERE state='queued' ORDER BY created_at ASC LIMIT 1`);
     const getResult = getStmt.get();
     const job = (getResult instanceof Promise ? await getResult : getResult) as JobRow | undefined;
     
     if (!job) return undefined;
     
     const now = new Date().toISOString();
-    const updateStmt = db.prepare(`UPDATE jobs SET state='running', updated_at=@updated_at WHERE id=@id`);
+    const updateStmt = getDb().prepare(`UPDATE jobs SET state='running', updated_at=@updated_at WHERE id=@id`);
     const updateResult = updateStmt.run({ id: job.id, updated_at: now });
     if (updateResult instanceof Promise) {
       await updateResult;
@@ -433,7 +444,7 @@ export const JobRepo = {
   },
   async succeed(id: string) {
     const now = new Date().toISOString();
-    const stmt = db.prepare(`UPDATE jobs SET state='succeeded', updated_at=@updated_at WHERE id=@id`);
+    const stmt = getDb().prepare(`UPDATE jobs SET state='succeeded', updated_at=@updated_at WHERE id=@id`);
     const result = stmt.run({ id, updated_at: now });
     if (result instanceof Promise) {
       await result;
@@ -441,13 +452,13 @@ export const JobRepo = {
   },
   async fail(id: string, error: string, maxAttempts = 5) {
     const now = new Date().toISOString();
-    const getStmt = db.prepare(`SELECT attempts FROM jobs WHERE id=@id`);
+    const getStmt = getDb().prepare(`SELECT attempts FROM jobs WHERE id=@id`);
     const getResult = getStmt.get({ id });
     const row = (getResult instanceof Promise ? await getResult : getResult) as { attempts: number } | undefined;
     const attempts = (row?.attempts ?? 0) + 1;
     
     if (attempts >= maxAttempts) {
-      const stmt = db.prepare(`UPDATE jobs SET state='dead', last_error=@error, attempts=@attempts, updated_at=@updated_at WHERE id=@id`);
+      const stmt = getDb().prepare(`UPDATE jobs SET state='dead', last_error=@error, attempts=@attempts, updated_at=@updated_at WHERE id=@id`);
       const result = stmt.run({ id, error, attempts, updated_at: now });
       if (result instanceof Promise) {
         await result;
@@ -455,14 +466,14 @@ export const JobRepo = {
       return;
     }
     // Mark failed, then requeue by setting state back to queued (simple retry)
-    const stmt = db.prepare(`UPDATE jobs SET state='queued', last_error=@error, attempts=@attempts, updated_at=@updated_at WHERE id=@id`);
+    const stmt = getDb().prepare(`UPDATE jobs SET state='queued', last_error=@error, attempts=@attempts, updated_at=@updated_at WHERE id=@id`);
     const result = stmt.run({ id, error, attempts, updated_at: now });
     if (result instanceof Promise) {
       await result;
     }
   },
   async list(limit = 100): Promise<JobRow[]> {
-    const stmt = db.prepare(`SELECT * FROM jobs ORDER BY created_at DESC LIMIT @limit`);
+    const stmt = getDb().prepare(`SELECT * FROM jobs ORDER BY created_at DESC LIMIT @limit`);
     const result = stmt.all({ limit });
     return (result instanceof Promise ? await result : result) as JobRow[];
   }
@@ -480,8 +491,8 @@ export const JobItemRepo = {
       updated_at: now
     }));
     
-    await db.transaction(async () => {
-      const stmt = db.prepare(`INSERT INTO job_items (id, job_id, sku, action, state, created_at, updated_at)
+    await getDb().transaction(async () => {
+      const stmt = getDb().prepare(`INSERT INTO job_items (id, job_id, sku, action, state, created_at, updated_at)
         VALUES (@id, @job_id, @sku, @action, 'queued', @created_at, @updated_at)`);
       for (const r of rows) {
         const result = stmt.run(r);
@@ -492,7 +503,7 @@ export const JobItemRepo = {
     });
   },
   async listSkus(job_id: string): Promise<string[]> {
-    const stmt = db.prepare(`SELECT sku FROM job_items WHERE job_id=@job_id`);
+    const stmt = getDb().prepare(`SELECT sku FROM job_items WHERE job_id=@job_id`);
     const result = stmt.all({ job_id });
     const rows = (result instanceof Promise ? await result : result) as { sku: string }[];
     return rows.map(r => r.sku);
@@ -504,7 +515,7 @@ export const AuditRepo = {
     const id = entry.id || `al_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
     const ts = entry.ts || new Date().toISOString();
     const meta = entry.meta ? JSON.stringify(entry.meta) : null;
-    const stmt = db.prepare(`INSERT INTO audit_logs (id, ts, level, connection_id, job_id, sku, message, meta)
+    const stmt = getDb().prepare(`INSERT INTO audit_logs (id, ts, level, connection_id, job_id, sku, message, meta)
       VALUES (@id, @ts, @level, @connection_id, @job_id, @sku, @message, @meta)`);
     const result = stmt.run({ id, ts, level: entry.level, connection_id: entry.connection_id ?? null, job_id: entry.job_id ?? null, sku: entry.sku ?? null, message: entry.message, meta });
     if (result instanceof Promise) {
@@ -512,12 +523,12 @@ export const AuditRepo = {
     }
   },
   async recent(limit = 200) {
-    const stmt = db.prepare(`SELECT * FROM audit_logs ORDER BY ts DESC LIMIT @limit`);
+    const stmt = getDb().prepare(`SELECT * FROM audit_logs ORDER BY ts DESC LIMIT @limit`);
     const result = stmt.all({ limit });
     return (result instanceof Promise ? await result : result);
   },
   async countSyncedSkus(connection_id: string): Promise<number> {
-    const stmt = db.prepare(
+    const stmt = getDb().prepare(
       `SELECT COUNT(DISTINCT sku) as count 
        FROM audit_logs 
        WHERE connection_id=@connection_id AND sku IS NOT NULL`
