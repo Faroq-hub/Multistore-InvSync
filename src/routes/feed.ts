@@ -4,7 +4,11 @@ import { toXml } from '../services/feedBuilder';
 import { getCurrentFeed, queryItems, refreshFeedNow, getDiscontinuedSkus } from '../services/feedCache';
 
 export default async function feedRoutes(app: FastifyInstance) {
-  app.get('/health', async () => ({ ok: true }));
+  app.get('/health', async (request, reply) => {
+    // Health check endpoint - must be available immediately
+    // Don't check database here to ensure fast response
+    return reply.send({ ok: true, timestamp: new Date().toISOString() });
+  });
 
   app.get('/v1/feed.json', { preHandler: requireApiKey }, async (req, reply) => {
     const q = req.query as any;
