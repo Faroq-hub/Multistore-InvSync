@@ -5,7 +5,7 @@
     "buildCommand": "npm run build"
   },
   "deploy": {
-    "startCommand": "npm run build && node dist/index.js",
+    "startCommand": "echo '[Startup] Building...' && npm run build && echo '[Startup] Build complete, checking dist...' && ls -la dist/ && echo '[Startup] Starting server...' && node dist/index.js",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
