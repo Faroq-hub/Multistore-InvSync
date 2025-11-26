@@ -13,20 +13,24 @@ Railway/Nixpacks uses Docker build caches that can conflict with npm's cache cle
 
 ## Solution
 
-Updated `railway.json` to clean the cache directory before running `npm ci`:
+Railway automatically runs `npm ci` during the build phase. The issue was that our `buildCommand` was trying to run `npm ci` again, causing a cache conflict.
 
+**Updated `railway.json`:**
 ```json
 {
   "build": {
-    "buildCommand": "rm -rf node_modules/.cache 2>/dev/null || true && npm ci && npm run build"
+    "buildCommand": "npm run build"
+  },
+  "deploy": {
+    "startCommand": "node dist/index.js"
   }
 }
 ```
 
 This:
-1. Removes the cache directory if it exists (ignores errors if it doesn't)
-2. Runs `npm ci` to install dependencies
-3. Runs `npm run build` to compile TypeScript
+1. Railway automatically runs `npm ci` (handles dependency installation)
+2. Our `buildCommand` only runs `npm run build` (compiles TypeScript)
+3. `startCommand` runs the pre-built app (no build during start)
 
 ## Alternative Solutions
 
