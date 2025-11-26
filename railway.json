@@ -5,7 +5,7 @@
     "buildCommand": "npm run build"
   },
   "deploy": {
-    "startCommand": "echo '[Startup] Building...' && npm run build && echo '[Startup] Build complete, checking dist...' && ls -la dist/ && echo '[Startup] Checking for index.js...' && (test -f dist/index.js && echo '[Startup] ✓ index.js found' || (echo '[Startup] ✗ index.js NOT FOUND' && echo '[Startup] Checking if src/index.ts exists...' && ls -la src/index.ts && echo '[Startup] Recompiling index.ts explicitly...' && npx tsc src/index.ts --outDir dist --module commonjs --target es2022 --moduleResolution node --esModuleInterop --skipLibCheck && ls -la dist/index.js)) && echo '[Startup] Listing all .js files in dist:' && find dist -name '*.js' -type f | head -10 && echo '[Startup] Starting server...' && node dist/index.js",
+    "startCommand": "npm run build && (test -f dist/index.js || npx tsc src/index.ts --outDir dist --module commonjs --target es2022 --moduleResolution node --esModuleInterop --skipLibCheck) && node dist/index.js",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
