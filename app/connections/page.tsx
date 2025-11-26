@@ -410,7 +410,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
   const rows = filteredConnections.map((conn) => [
     conn.name,
     conn.type,
-    <Badge key={conn.id} status={conn.status === 'active' ? 'success' : conn.status === 'paused' ? 'warning' : 'critical'}>
+    <Badge key={conn.id} tone={conn.status === 'active' ? 'success' : conn.status === 'paused' ? 'warning' : 'critical'}>
       {conn.status}
     </Badge>,
     <Text key={conn.id} as="span" fontWeight={conn.syncedSkus && conn.syncedSkus > 0 ? 'semibold' : 'regular'}>
@@ -455,14 +455,14 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
         <Text variant="headingLg" as="h2">
           Connection health
         </Text>
-        <Text as="p" color="subdued">
+        <Text as="p" tone="subdued">
           Track active destinations and trigger manual syncs when needed.
         </Text>
       </BlockStack>
       <InlineStack gap="400">
-        <Card sectioned>
+        <Card>
           <BlockStack gap="100">
-            <Text as="span" color="subdued">
+            <Text as="span" tone="subdued">
               Active
             </Text>
             <Text variant="headingLg" as="p">
@@ -470,9 +470,9 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
             </Text>
           </BlockStack>
         </Card>
-        <Card sectioned>
+        <Card>
           <BlockStack gap="100">
-            <Text as="span" color="subdued">
+            <Text as="span" tone="subdued">
               Paused
             </Text>
             <Text variant="headingLg" as="p">
@@ -480,9 +480,9 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
             </Text>
           </BlockStack>
         </Card>
-        <Card sectioned>
+        <Card>
           <BlockStack gap="100">
-            <Text as="span" color="subdued">
+            <Text as="span" tone="subdued">
               Disabled
             </Text>
             <Text variant="headingLg" as="p">
@@ -644,6 +644,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
               value={formData.name}
               onChange={(value) => setFormData({ ...formData, name: value })}
               placeholder="My Store Connection"
+              autoComplete="off"
             />
             {connectionType === 'shopify' ? (
               <>
@@ -653,6 +654,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
                   onChange={(value) => setFormData({ ...formData, dest_shop_domain: value })}
                   placeholder="destination-store.myshopify.com"
                   helpText="The Shopify store domain you want to sync to"
+                  autoComplete="off"
                 />
                 <TextField
                   label="Access Token"
@@ -661,6 +663,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
                   placeholder="shpat_xxx"
                   helpText="Admin API access token from the destination store"
                   type="password"
+                  autoComplete="off"
                 />
                 <TextField
                   label="Location ID"
@@ -669,6 +672,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
                   placeholder="123456789"
                   helpText="Required for inventory updates. Find it in Shopify Admin > Settings > Locations, or via API: GET /admin/api/2024-10/locations.json"
                   requiredIndicator
+                  autoComplete="off"
                 />
               </>
             ) : (
@@ -679,6 +683,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
                   onChange={(value) => setFormData({ ...formData, base_url: value })}
                   placeholder="https://your-store.com"
                   helpText="Your WooCommerce store URL"
+                  autoComplete="off"
                 />
                 <TextField
                   label="Consumer Key"
@@ -686,6 +691,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
                   onChange={(value) => setFormData({ ...formData, consumer_key: value })}
                   placeholder="ck_xxx"
                   helpText="Get this from WooCommerce → Settings → Advanced → REST API. Create a new API key with Read/Write permissions."
+                  autoComplete="off"
                 />
                 <TextField
                   label="Consumer Secret"
@@ -694,6 +700,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
                   placeholder="cs_xxx"
                   type="password"
                   helpText="Get this from WooCommerce → Settings → Advanced → REST API. Copy immediately after generating (shown only once)."
+                  autoComplete="off"
                 />
               </>
             )}
@@ -735,7 +742,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
             <Text as="p">
               Are you sure you want to delete the connection <strong>{connectionToDelete?.name}</strong>?
             </Text>
-            <Text as="p" color="subdued">
+            <Text as="p" tone="subdued">
               This action cannot be undone. All sync jobs for this connection will be stopped.
             </Text>
           </BlockStack>
@@ -768,7 +775,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
             <Text as="p">
               Are you sure you want to delete <strong>all {connections.length} connection(s)</strong>?
             </Text>
-            <Text as="p" color="subdued">
+            <Text as="p" tone="subdued">
               This action cannot be undone. All sync jobs for these connections will be stopped and removed.
             </Text>
           </BlockStack>
@@ -780,7 +787,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
         onClose={() => {
           setEditModalOpen(false);
           setConnectionToEdit(null);
-          setEditFormData({ name: '', dest_location_id: '' });
+          setEditFormData({ name: '', dest_location_id: '', sync_price: true });
         }}
         title="Edit Connection"
         primaryAction={{
@@ -794,7 +801,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
             onAction: () => {
               setEditModalOpen(false);
               setConnectionToEdit(null);
-              setEditFormData({ name: '', dest_location_id: '' });
+              setEditFormData({ name: '', dest_location_id: '', sync_price: true });
             },
           },
         ]}
@@ -806,6 +813,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
               value={editFormData.name}
               onChange={(value) => setEditFormData({ ...editFormData, name: value })}
               placeholder="My Store Connection"
+              autoComplete="off"
             />
             {connectionToEdit?.type === 'shopify' && (
               <>
@@ -816,16 +824,17 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
                   placeholder="123456789"
                   helpText="Required for inventory updates. Find it in Shopify Admin > Settings > Locations, or via API: GET /admin/api/2024-10/locations.json"
                   requiredIndicator
+                  autoComplete="off"
                 />
                 {connectionToEdit?.dest_shop_domain && (
-                  <Text as="p" color="subdued" variant="bodySm">
+                  <Text as="p" tone="subdued" variant="bodySm">
                     Destination: {connectionToEdit.dest_shop_domain}
                   </Text>
                 )}
               </>
             )}
             {connectionToEdit?.type === 'woocommerce' && connectionToEdit?.base_url && (
-              <Text as="p" color="subdued" variant="bodySm">
+              <Text as="p" tone="subdued" variant="bodySm">
                 Destination: {connectionToEdit.base_url}
               </Text>
             )}

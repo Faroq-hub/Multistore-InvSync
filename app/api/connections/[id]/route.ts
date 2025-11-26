@@ -10,12 +10,12 @@ export async function GET(
     const { id } = await params;
     const shop = await requireShopFromSession(request);
 
-    const installation = InstallationRepo.getByDomain(shop);
+    const installation = await InstallationRepo.getByDomain(shop);
     if (!installation) {
       return NextResponse.json({ error: 'Installation not found' }, { status: 404 });
     }
 
-    const connection = ConnectionRepo.get(id);
+    const connection = await ConnectionRepo.get(id);
     if (!connection) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 });
     }

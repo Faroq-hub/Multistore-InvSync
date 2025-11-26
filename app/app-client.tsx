@@ -178,7 +178,7 @@ export default function AppClient({ shop, host }: { shop: string; host: string }
 
   return (
     <Providers>
-      <Frame navigation={navigationMarkup} topBar={topBarMarkup} skipToContentTarget="app-content">
+      <Frame navigation={navigationMarkup} topBar={topBarMarkup}>
         <div id="app-content">
           <ConnectionsPage shop={shop} app={appBridge} />
         </div>

@@ -42,12 +42,38 @@ This guide shows you how to run your app on your own laptop/computer instead of 
    brew services start postgresql@15
    ```
 
-4. **Create a database:**
+4. **Add PostgreSQL to your PATH** (so commands like `createdb` work):
+   ```bash
+   # For Apple Silicon Macs (M1/M2/M3):
+   echo 'export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"' >> ~/.zshrc
+   
+   # For Intel Macs:
+   echo 'export PATH="/usr/local/opt/postgresql@15/bin:$PATH"' >> ~/.zshrc
+   
+   # Reload your shell
+   source ~/.zshrc
+   ```
+
+5. **Create a database** (choose one method):
+
+   **Method A: Using createdb command:**
    ```bash
    createdb reseller_feed_middleware
    ```
 
-**✅ Done!** PostgreSQL is running.
+   **Method B: Using psql (if createdb doesn't work):**
+   ```bash
+   # Connect to PostgreSQL
+   psql postgres
+   
+   # Then run:
+   CREATE DATABASE reseller_feed_middleware;
+   
+   # Exit psql
+   \q
+   ```
+
+**✅ Done!** PostgreSQL is running and database is created.
 
 ### Option B: Using Docker (Works on Mac, Windows, Linux)
 

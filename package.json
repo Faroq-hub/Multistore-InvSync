@@ -11,7 +11,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "dev:next": "next dev -p 3001",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:next\"",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.backend.json",
     "build:next": "next build",
     "start": "npm run build && node dist/index.js",
     "start:next": "next start -p 3001",
