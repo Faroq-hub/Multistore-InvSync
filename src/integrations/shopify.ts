@@ -1,10 +1,14 @@
 import { config } from '../config';
 import { CatalogItem } from '../models/types';
 
-// Dynamic import for node-fetch (ESM module)
+// Use Node.js built-in fetch (available in Node 18+)
+// Fallback to dynamic import of node-fetch if needed
 const getFetch = async () => {
-  const { default: fetch } = await import('node-fetch');
-  return fetch;
+  if (typeof globalThis.fetch !== 'undefined') {
+    return globalThis.fetch;
+  }
+  const nodeFetch = await import('node-fetch');
+  return nodeFetch.default;
 };
 
 type ShopifyProductVariant = {
