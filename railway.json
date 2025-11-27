@@ -5,7 +5,7 @@
     "buildCommand": "npm run build && npm run build:next"
   },
   "deploy": {
-    "startCommand": "PORT=${PORT:-8080} BACKEND_PORT=3000 npm run start:production",
+    "startCommand": "npm run build && PORT=${PORT:-8080} BACKEND_PORT=3000 npm run start:production",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
