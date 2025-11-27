@@ -1,6 +1,15 @@
-import fetch from 'node-fetch';
 import { shopify } from './shopify';
 import { InstallationRow } from '../db';
+
+// Use Node.js built-in fetch (available in Node 18+)
+// Fallback to dynamic import of node-fetch if needed
+const getFetch = async () => {
+  if (typeof globalThis.fetch !== 'undefined') {
+    return globalThis.fetch;
+  }
+  const nodeFetch = await import('node-fetch');
+  return nodeFetch.default;
+};
 
 const REQUIRED_TOPICS = [
   'products/create',
@@ -40,6 +49,7 @@ export async function syncShopifyWebhooks(installation: InstallationRow): Promis
   const apiVersion = shopify.config.apiVersion;
   const shopDomain = installation.shop_domain;
 
+  const fetch = await getFetch();
   const existingResponse = await fetch(`https://${shopDomain}/admin/api/${apiVersion}/webhooks.json?limit=250`, {
     headers
   });
