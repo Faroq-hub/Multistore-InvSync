@@ -1,5 +1,14 @@
-import fetch from 'node-fetch';
 import { ConnectionRepo, JobRepo, JobItemRepo, AuditRepo } from '../db';
+
+// Use Node.js built-in fetch (available in Node 18+)
+// Fallback to dynamic import of node-fetch if needed
+const getFetch = async () => {
+  if (typeof globalThis.fetch !== 'undefined') {
+    return globalThis.fetch;
+  }
+  const nodeFetch = await import('node-fetch');
+  return nodeFetch.default;
+};
 import { fetchShopifyCatalog } from '../integrations/shopify';
 import { fetchWooCatalog } from '../integrations/woocommerce';
 import { CatalogItem } from '../models/types';
@@ -40,6 +49,7 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
   if (!conn || !conn.dest_shop_domain || !conn.access_token) throw new Error('Invalid Shopify connection');
   const items = await getSourceItems(filterSkus);
 
+  const fetch = await getFetch();
   const headers = {
     'X-Shopify-Access-Token': conn.access_token,
     'Content-Type': 'application/json'
@@ -102,6 +112,7 @@ async function pushToWoo(connId: string, log: (m: string) => void, filterSkus?: 
   if (!conn || !conn.base_url || !conn.consumer_key || !conn.consumer_secret) throw new Error('Invalid Woo connection');
   const items = await getSourceItems(filterSkus);
 
+  const fetch = await getFetch();
   const auth = new URLSearchParams({
     consumer_key: conn.consumer_key,
     consumer_secret: conn.consumer_secret
