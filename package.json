@@ -15,6 +15,7 @@
     "build:next": "next build",
     "start": "npm run build && node dist/index.js",
     "start:next": "next start -p 3001",
+    "start:production": "concurrently --names \"backend,frontend\" --prefix-colors \"blue,green\" \"PORT=${BACKEND_PORT:-3000} node dist/index.js\" \"PORT=${PORT:-8080} next start\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "backup": "./scripts/backup-db.sh",
     "migrate:postgres": "node scripts/migrate-postgres.js",

@@ -1,0 +1,16 @@
+# Copy everything below to Railway Raw Editor
+# All values are ready - just paste and save!
+
+ENCRYPTION_KEY=dfd44db01374d4f45c05c27b5b483300c70fc5fce58783479ce98c80b5fb5c23
+ADMIN_TOKEN=d0c7e77e47a3daad35741eed9ff23e49de3dca8c49ef24a0691065323f06167d
+SHOPIFY_API_KEY=52f2a62825954921fc906b6a34811b79
+SHOPIFY_API_SECRET=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
+SHOPIFY_SCOPES=read_products,read_inventory,read_locations,write_products,write_inventory
+SHOPIFY_API_VERSION=2024-10
+SHOPIFY_WEBHOOK_SECRET=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
+SHOPIFY_WEBHOOK_BASE_URL=https://web-production-33f26.up.railway.app
+APP_URL=https://web-production-33f26.up.railway.app
+NEXT_PUBLIC_SHOPIFY_API_KEY=52f2a62825954921fc906b6a34811b79
+NEXT_PUBLIC_SUPPORT_EMAIL=support@yourdomain.com
+LOG_LEVEL=info
+
