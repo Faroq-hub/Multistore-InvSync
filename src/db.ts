@@ -5,6 +5,9 @@ import { migratePostgres, isPostgres } from './db/postgres';
 
 // Lazy initialization of database adapter to avoid blocking startup
 let db: DbAdapter | null = null;
+let migrationRan = false;
+let migrationPromise: Promise<void> | null = null;
+
 function getDb(): DbAdapter {
   if (!db) {
     try {
@@ -15,6 +18,32 @@ function getDb(): DbAdapter {
     }
   }
   return db;
+}
+
+// Ensure migration runs before any database operation
+async function ensureMigration(): Promise<void> {
+  if (migrationRan) return;
+  
+  // Prevent concurrent migration runs
+  if (migrationPromise) {
+    await migrationPromise;
+    return;
+  }
+  
+  migrationPromise = (async () => {
+    try {
+      console.log('[DB] Auto-running migration on first access...');
+      await migrate();
+      migrationRan = true;
+      console.log('[DB] Auto-migration completed');
+    } catch (err) {
+      console.error('[DB] Auto-migration failed:', err);
+      // Don't throw - migration might have partially succeeded or already ran
+      migrationRan = true;
+    }
+  })();
+  
+  await migrationPromise;
 }
 
 // Helper to handle both sync and async exec
@@ -384,6 +413,7 @@ export const ShopifyOAuthStateRepo = {
 
 export const ConnectionRepo = {
   async insert(conn: Omit<ConnectionRow, 'created_at' | 'updated_at'>) {
+    await ensureMigration(); // Ensure migration runs before insert
     const now = new Date().toISOString();
     const stmt = getDb().prepare(`INSERT INTO connections (id, installation_id, type, name, status, dest_shop_domain, dest_location_id, base_url, consumer_key, consumer_secret, access_token, rules_json, sync_price, sync_categories, create_products, created_at, updated_at)
       VALUES (@id, @installation_id, @type, @name, @status, @dest_shop_domain, @dest_location_id, @base_url, @consumer_key, @consumer_secret, @access_token, @rules_json, @sync_price, @sync_categories, @create_products, @created_at, @updated_at)`);
