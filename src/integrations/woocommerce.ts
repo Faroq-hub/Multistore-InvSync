@@ -1,14 +1,17 @@
 import { config } from '../config';
 import { CatalogItem } from '../models/types';
 
+// Generic fetch function type compatible with both native fetch and node-fetch
+type FetchFn = (url: string, init?: { headers?: Record<string, string> }) => Promise<{ ok: boolean; json: () => Promise<any> }>;
+
 // Use Node.js built-in fetch (available in Node 18+)
 // Fallback to dynamic import of node-fetch if needed
-const getFetch = async () => {
+const getFetch = async (): Promise<FetchFn> => {
   if (typeof globalThis.fetch !== 'undefined') {
-    return globalThis.fetch;
+    return globalThis.fetch as unknown as FetchFn;
   }
   const nodeFetch = await import('node-fetch');
-  return nodeFetch.default;
+  return nodeFetch.default as unknown as FetchFn;
 };
 
 export async function fetchWooCatalog(): Promise<CatalogItem[]> {

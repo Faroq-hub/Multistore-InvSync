@@ -1,13 +1,16 @@
 import { ConnectionRepo, JobRepo, JobItemRepo, AuditRepo, ConnectionRow } from '../db';
 
+// Generic fetch function type compatible with both native fetch and node-fetch
+type FetchFn = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{ ok: boolean; status: number; json: () => Promise<any>; text: () => Promise<string>; headers: { get: (name: string) => string | null } }>;
+
 // Use Node.js built-in fetch (available in Node 18+)
 // Fallback to dynamic import of node-fetch if needed
-const getFetch = async () => {
+const getFetch = async (): Promise<FetchFn> => {
   if (typeof globalThis.fetch !== 'undefined') {
-    return globalThis.fetch;
+    return globalThis.fetch as unknown as FetchFn;
   }
   const nodeFetch = await import('node-fetch');
-  return nodeFetch.default;
+  return nodeFetch.default as unknown as FetchFn;
 };
 import { fetchShopifyCatalog } from '../integrations/shopify';
 import { fetchWooCatalog } from '../integrations/woocommerce';
@@ -46,7 +49,7 @@ function applyRules(item: CatalogItem, rulesJson: string | null): CatalogItem {
 
 // Helper to find product in destination by SKU or barcode
 async function findProductInDestination(
-  fetch: typeof globalThis.fetch,
+  fetch: FetchFn,
   headers: Record<string, string>,
   domain: string,
   apiVersion: string,
@@ -94,7 +97,7 @@ async function findProductInDestination(
 
 // Helper to create a new product in Shopify destination
 async function createProductInShopify(
-  fetch: typeof globalThis.fetch,
+  fetch: FetchFn,
   headers: Record<string, string>,
   domain: string,
   apiVersion: string,
@@ -256,7 +259,7 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
 
 // Helper to create a new product in WooCommerce destination
 async function createProductInWoo(
-  fetch: typeof globalThis.fetch,
+  fetch: FetchFn,
   base: string,
   auth: URLSearchParams,
   item: CatalogItem,
