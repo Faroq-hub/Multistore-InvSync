@@ -458,13 +458,17 @@ async function pushToWoo(connId: string, log: (m: string) => void, filterSkus?: 
 }
 
 export function startPushWorker(log: (m: string) => void) {
+  log('[Push Worker] Starting push worker loop...');
+  console.log('[Push Worker] Starting push worker loop...');
+  
   async function loop() {
     try {
       const job = await JobRepo.pickNext();
       if (!job) {
-        setTimeout(loop, 1000);
+        setTimeout(loop, 5000); // Poll every 5 seconds
         return;
       }
+      console.log(`[Push Worker] Found job: ${job.id}`);
       log(`Processing job ${job.id} (${job.job_type}) for connection ${job.connection_id}`);
       const conn = await ConnectionRepo.get(job.connection_id);
       if (!conn) {
@@ -487,10 +491,14 @@ export function startPushWorker(log: (m: string) => void) {
       }
       setImmediate(loop);
     } catch (e) {
-      log(`Worker loop error: ${e}`);
-      setTimeout(loop, 2000);
+      log(`[Push Worker] Worker loop error: ${e}`);
+      console.error(`[Push Worker] Worker loop error:`, e);
+      setTimeout(loop, 5000);
     }
   }
+  
+  // Start the loop immediately
+  console.log('[Push Worker] Initiating first loop iteration...');
   loop();
 }
 
