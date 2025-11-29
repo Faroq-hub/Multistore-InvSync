@@ -131,12 +131,12 @@ class PostgreSQLAdapter implements DbAdapter {
   }
 
   prepare(sql: string): PreparedStatement {
-    // Convert SQLite parameter syntax (@param) to PostgreSQL ($1, $2, ...)
-    const convertedSql = this.convertParams(sql);
+    // Store original SQL - buildQuery will handle conversion
+    const originalSql = sql;
     
     return {
       run: async (params?: Record<string, any>) => {
-        const { query, values } = this.buildQuery(convertedSql, params || {});
+        const { query, values } = this.buildQuery(originalSql, params || {});
         const result = await this.pool.query(query, values);
         return { 
           changes: result.rowCount || 0,
@@ -144,12 +144,12 @@ class PostgreSQLAdapter implements DbAdapter {
         };
       },
       get: async (params?: Record<string, any>) => {
-        const { query, values } = this.buildQuery(convertedSql, params || {});
+        const { query, values } = this.buildQuery(originalSql, params || {});
         const result = await this.pool.query(query, values);
         return result.rows[0] || null;
       },
       all: async (params?: Record<string, any>) => {
-        const { query, values } = this.buildQuery(convertedSql, params || {});
+        const { query, values } = this.buildQuery(originalSql, params || {});
         const result = await this.pool.query(query, values);
         return result.rows;
       }
@@ -200,28 +200,27 @@ class PostgreSQLAdapter implements DbAdapter {
   }
 
   private buildQuery(sql: string, params: Record<string, any>): { query: string; values: any[] } {
-    // First, find all @param references in the SQL
+    // Find all @param references in the SQL (in order of appearance)
     const paramRegex = /@(\w+)/g;
     const sqlParamNames: string[] = [];
     let match;
     
     while ((match = paramRegex.exec(sql)) !== null) {
       const paramName = match[1];
+      // Add each unique param name in order of first appearance
       if (!sqlParamNames.includes(paramName)) {
         sqlParamNames.push(paramName);
       }
     }
     
-    // Only use params that are referenced in the SQL
+    // Build the values array and convert @param to $N
     const values: any[] = [];
     let query = sql;
-    let paramIndex = 1;
 
-    sqlParamNames.forEach(name => {
+    sqlParamNames.forEach((name, index) => {
       const regex = new RegExp(`@${name}\\b`, 'g');
-      query = query.replace(regex, `$${paramIndex}`);
+      query = query.replace(regex, `$${index + 1}`);
       values.push(params[name]);
-      paramIndex++;
     });
 
     return { query, values };
