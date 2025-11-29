@@ -109,28 +109,27 @@ export async function migratePostgres(): Promise<void> {
         updated_at TEXT NOT NULL,
         FOREIGN KEY (installation_id) REFERENCES installations(id) ON DELETE CASCADE
       )`,
-      `CREATE TABLE IF NOT EXISTS sync_jobs (
+      `CREATE TABLE IF NOT EXISTS jobs (
         id TEXT PRIMARY KEY,
         connection_id TEXT NOT NULL,
-        status TEXT NOT NULL CHECK (status IN ('pending','running','completed','failed')) DEFAULT 'pending',
-        started_at TEXT,
-        finished_at TEXT,
-        items_processed INTEGER DEFAULT 0,
-        items_failed INTEGER DEFAULT 0,
-        error_message TEXT,
+        job_type TEXT NOT NULL CHECK (job_type IN ('full_sync','delta')),
+        state TEXT NOT NULL CHECK (state IN ('queued','running','succeeded','failed','dead')) DEFAULT 'queued',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
         created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
         FOREIGN KEY (connection_id) REFERENCES connections(id) ON DELETE CASCADE
       )`,
       `CREATE TABLE IF NOT EXISTS job_items (
         id TEXT PRIMARY KEY,
         job_id TEXT NOT NULL,
         sku TEXT NOT NULL,
-        source_qty INTEGER,
-        dest_qty_before INTEGER,
-        dest_qty_after INTEGER,
-        status TEXT NOT NULL CHECK (status IN ('pending','success','failed')) DEFAULT 'pending',
+        action TEXT NOT NULL CHECK (action IN ('update','create','delete')) DEFAULT 'update',
+        state TEXT NOT NULL CHECK (state IN ('queued','running','succeeded','failed')) DEFAULT 'queued',
         error TEXT,
-        FOREIGN KEY (job_id) REFERENCES sync_jobs(id) ON DELETE CASCADE
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
       )`,
       `CREATE TABLE IF NOT EXISTS audit_log (
         id TEXT PRIMARY KEY,
@@ -150,7 +149,8 @@ export async function migratePostgres(): Promise<void> {
         FOREIGN KEY (installation_id) REFERENCES installations(id) ON DELETE CASCADE
       )`,
       `CREATE INDEX IF NOT EXISTS idx_connections_installation ON connections(installation_id)`,
-      `CREATE INDEX IF NOT EXISTS idx_sync_jobs_connection ON sync_jobs(connection_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_jobs_state ON jobs(state)`,
+      `CREATE INDEX IF NOT EXISTS idx_jobs_connection ON jobs(connection_id)`,
       `CREATE INDEX IF NOT EXISTS idx_job_items_job ON job_items(job_id)`,
       `CREATE INDEX IF NOT EXISTS idx_audit_log_installation ON audit_log(installation_id)`,
       `CREATE INDEX IF NOT EXISTS idx_shopify_webhooks_installation ON shopify_webhooks(installation_id)`,
