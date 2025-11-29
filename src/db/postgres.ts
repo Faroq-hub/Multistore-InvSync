@@ -57,19 +57,104 @@ export async function migratePostgres(): Promise<void> {
   if (!pool) {
     return;
   }
-
-  const fs = await import('fs/promises');
-  const path = await import('path');
   
   try {
-    const migrationPath = path.join(process.cwd(), 'src/db/postgres-migration.sql');
-    const migrationSql = await fs.readFile(migrationPath, 'utf-8');
+    console.log('[DB] Running PostgreSQL migration...');
     
-    // Split by semicolon and execute each statement
-    const statements = migrationSql
-      .split(';')
-      .map(s => s.trim())
-      .filter(s => s.length > 0 && !s.startsWith('--'));
+    // First, try to add the new columns (this will silently fail if they already exist)
+    const addColumnStatements = [
+      `ALTER TABLE connections ADD COLUMN IF NOT EXISTS sync_price INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE connections ADD COLUMN IF NOT EXISTS sync_categories INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE connections ADD COLUMN IF NOT EXISTS create_products INTEGER NOT NULL DEFAULT 1`,
+    ];
+
+    for (const stmt of addColumnStatements) {
+      try {
+        await pool.query(stmt);
+        console.log('[DB] Executed:', stmt.substring(0, 60) + '...');
+      } catch (err: any) {
+        // Ignore errors - column might already exist or table might not exist yet
+        console.log('[DB] Column migration note:', err.message);
+      }
+    }
+
+    // Main table creation statements
+    const statements = [
+      `CREATE TABLE IF NOT EXISTS installations (
+        id TEXT PRIMARY KEY,
+        shop_domain TEXT NOT NULL UNIQUE,
+        access_token TEXT NOT NULL,
+        scope TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS connections (
+        id TEXT PRIMARY KEY,
+        installation_id TEXT NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('shopify','woocommerce')),
+        name TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('active','paused','disabled')) DEFAULT 'active',
+        dest_shop_domain TEXT,
+        dest_location_id TEXT,
+        base_url TEXT,
+        consumer_key TEXT,
+        consumer_secret TEXT,
+        access_token TEXT,
+        rules_json TEXT,
+        sync_price INTEGER NOT NULL DEFAULT 0,
+        sync_categories INTEGER NOT NULL DEFAULT 0,
+        create_products INTEGER NOT NULL DEFAULT 1,
+        last_synced_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (installation_id) REFERENCES installations(id) ON DELETE CASCADE
+      )`,
+      `CREATE TABLE IF NOT EXISTS sync_jobs (
+        id TEXT PRIMARY KEY,
+        connection_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending','running','completed','failed')) DEFAULT 'pending',
+        started_at TEXT,
+        finished_at TEXT,
+        items_processed INTEGER DEFAULT 0,
+        items_failed INTEGER DEFAULT 0,
+        error_message TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (connection_id) REFERENCES connections(id) ON DELETE CASCADE
+      )`,
+      `CREATE TABLE IF NOT EXISTS job_items (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        sku TEXT NOT NULL,
+        source_qty INTEGER,
+        dest_qty_before INTEGER,
+        dest_qty_after INTEGER,
+        status TEXT NOT NULL CHECK (status IN ('pending','success','failed')) DEFAULT 'pending',
+        error TEXT,
+        FOREIGN KEY (job_id) REFERENCES sync_jobs(id) ON DELETE CASCADE
+      )`,
+      `CREATE TABLE IF NOT EXISTS audit_log (
+        id TEXT PRIMARY KEY,
+        installation_id TEXT NOT NULL,
+        connection_id TEXT,
+        action TEXT NOT NULL,
+        details TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (installation_id) REFERENCES installations(id) ON DELETE CASCADE
+      )`,
+      `CREATE TABLE IF NOT EXISTS shopify_webhooks (
+        id TEXT PRIMARY KEY,
+        installation_id TEXT NOT NULL,
+        topic TEXT NOT NULL,
+        webhook_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (installation_id) REFERENCES installations(id) ON DELETE CASCADE
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_connections_installation ON connections(installation_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_sync_jobs_connection ON sync_jobs(connection_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_job_items_job ON job_items(job_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_log_installation ON audit_log(installation_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_shopify_webhooks_installation ON shopify_webhooks(installation_id)`,
+    ];
 
     for (const statement of statements) {
       try {
@@ -77,11 +162,8 @@ export async function migratePostgres(): Promise<void> {
       } catch (err: any) {
         // Ignore "already exists" errors
         if (!err.message.includes('already exists') && 
-            !err.message.includes('duplicate') &&
-            !err.message.includes('relation') &&
-            !err.message.includes('does not exist')) {
-          console.error('PostgreSQL migration error:', err.message);
-          throw err;
+            !err.message.includes('duplicate')) {
+          console.error('[DB] PostgreSQL migration error:', err.message);
         }
       }
     }
