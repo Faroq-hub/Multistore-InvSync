@@ -559,12 +559,12 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
             title="Need a refresher on deployment?"
             illustration="https://cdn.shopify.com/s/files/1/0757/9955/files/empty-state.svg"
             primaryAction={{
-              content: 'Deployment guide',
-              onAction: openExternal('https://github.com/FarooqK/reseller-feed-middleware/blob/main/DEPLOYMENT.md'),
+              content: 'View Shopify docs',
+              onAction: openExternal('https://shopify.dev/docs/apps'),
             }}
             secondaryAction={{
-              content: 'View docs',
-              onAction: openExternal('https://shopify.dev/docs/apps'),
+              content: 'Railway dashboard',
+              onAction: openExternal('https://railway.app/dashboard'),
             }}
           >
             Review environment variables and infrastructure before shipping to production.
@@ -587,8 +587,8 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
                   onAction: () => setModalOpen(true),
                 }}
                 secondaryAction={{
-                  content: 'Read setup guide',
-                  onAction: openExternal('https://github.com/FarooqK/reseller-feed-middleware/blob/main/SETUP.md'),
+                  content: 'Learn about syncing',
+                  onAction: openExternal('https://shopify.dev/docs/apps/build/online-store'),
                 }}
                 image="https://cdn.shopify.com/s/files/1/0757/9955/files/empty-state.svg"
               >
