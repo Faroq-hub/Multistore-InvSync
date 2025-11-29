@@ -1,6 +1,7 @@
 import { createDbAdapter, type DbAdapter } from './db/adapter';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
+import { migratePostgres, isPostgres } from './db/postgres';
 
 // Lazy initialization of database adapter to avoid blocking startup
 let db: DbAdapter | null = null;
@@ -25,6 +26,15 @@ async function execMigration(sql: string): Promise<void> {
 }
 
 export async function migrate() {
+  // Use PostgreSQL-specific migration if DATABASE_URL is set
+  if (isPostgres()) {
+    console.log('[DB] Using PostgreSQL migration');
+    await migratePostgres();
+    return;
+  }
+  
+  // SQLite migration
+  console.log('[DB] Using SQLite migration');
   const migrationSql = `
     CREATE TABLE IF NOT EXISTS resellers (
       id TEXT PRIMARY KEY,
