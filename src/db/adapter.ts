@@ -200,12 +200,24 @@ class PostgreSQLAdapter implements DbAdapter {
   }
 
   private buildQuery(sql: string, params: Record<string, any>): { query: string; values: any[] } {
-    const paramNames = Object.keys(params);
+    // First, find all @param references in the SQL
+    const paramRegex = /@(\w+)/g;
+    const sqlParamNames: string[] = [];
+    let match;
+    
+    while ((match = paramRegex.exec(sql)) !== null) {
+      const paramName = match[1];
+      if (!sqlParamNames.includes(paramName)) {
+        sqlParamNames.push(paramName);
+      }
+    }
+    
+    // Only use params that are referenced in the SQL
     const values: any[] = [];
     let query = sql;
     let paramIndex = 1;
 
-    paramNames.forEach(name => {
+    sqlParamNames.forEach(name => {
       const regex = new RegExp(`@${name}\\b`, 'g');
       query = query.replace(regex, `$${paramIndex}`);
       values.push(params[name]);
