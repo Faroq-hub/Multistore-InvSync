@@ -44,7 +44,10 @@ export default async function connectionsRoutes(app: FastifyInstance) {
       consumer_key: null,
       consumer_secret: null,
       access_token,
-      rules_json: null
+      rules_json: null,
+      sync_price: 0,
+      sync_categories: 0,
+      create_products: 1
     });
     reply.send({ ok: true });
   });
@@ -73,7 +76,10 @@ export default async function connectionsRoutes(app: FastifyInstance) {
       consumer_key,
       consumer_secret,
       access_token: null,
-      rules_json: null
+      rules_json: null,
+      sync_price: 0,
+      sync_categories: 0,
+      create_products: 1
     });
     reply.send({ ok: true });
   });
