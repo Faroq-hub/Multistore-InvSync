@@ -58,7 +58,9 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
     base_url: '',
     consumer_key: '',
     consumer_secret: '',
-    sync_price: true,
+    sync_price: false,
+    sync_categories: false,
+    create_products: true,
   });
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ content: string; error?: boolean } | null>(null);
@@ -210,18 +212,18 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
               dest_shop_domain: formData.dest_shop_domain,
               access_token: formData.access_token,
               dest_location_id: formData.dest_location_id || null,
-              rules: {
-                sync_price: formData.sync_price !== false,
-              },
+              sync_price: formData.sync_price === true,
+              sync_categories: formData.sync_categories === true,
+              create_products: formData.create_products !== false,
             }
           : {
               name: formData.name,
               base_url: formData.base_url,
               consumer_key: formData.consumer_key,
               consumer_secret: formData.consumer_secret,
-              rules: {
-                sync_price: formData.sync_price !== false,
-              },
+              sync_price: formData.sync_price === true,
+              sync_categories: formData.sync_categories === true,
+              create_products: formData.create_products !== false,
             };
 
       await makeRequest(endpoint, {
@@ -240,7 +242,9 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
         base_url: '',
         consumer_key: '',
         consumer_secret: '',
-        sync_price: true,
+        sync_price: false,
+        sync_categories: false,
+        create_products: true,
       });
       fetchConnections();
     } catch (err: any) {
@@ -704,11 +708,24 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
                 />
               </>
             )}
+            <Text as="h3" variant="headingMd">Sync Options</Text>
+            <Checkbox
+              label="Create products if not found"
+              checked={formData.create_products !== false}
+              onChange={(value) => setFormData({ ...formData, create_products: value })}
+              helpText="When enabled, products that don't exist in the destination store will be created automatically. When disabled, only existing products will be updated."
+            />
             <Checkbox
               label="Sync prices"
-              checked={formData.sync_price !== false}
+              checked={formData.sync_price === true}
               onChange={(value) => setFormData({ ...formData, sync_price: value })}
-              helpText="Enable this to sync product prices to the destination store. When disabled, only inventory levels will be synced."
+              helpText="Enable to update product prices in the destination store. When disabled, only stock levels will be synced."
+            />
+            <Checkbox
+              label="Sync categories"
+              checked={formData.sync_categories === true}
+              onChange={(value) => setFormData({ ...formData, sync_categories: value })}
+              helpText="Enable to sync product categories/types to the destination store. Categories will be created if they don't exist."
             />
           </BlockStack>
         </Modal.Section>

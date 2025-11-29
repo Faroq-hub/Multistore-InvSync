@@ -15,11 +15,28 @@ type ShopifyProductVariant = {
   id: string;
   title: string;
   sku: string;
+  barcode: string | null;
   price: string;
-  image?: { src?: string };
-  product: { title: string; handle?: string; product_type?: string; updated_at?: string };
-  inventoryQuantity?: number;
-  imageUrl?: string;
+  compare_at_price: string | null;
+  inventory_item_id: number;
+  inventory_quantity: number;
+  weight: number;
+  weight_unit: string;
+  image_id: number | null;
+};
+
+type ShopifyProduct = {
+  id: number;
+  title: string;
+  body_html: string | null;
+  vendor: string;
+  product_type: string;
+  handle: string;
+  tags: string;
+  status: string;
+  images: { id: number; src: string }[];
+  variants: ShopifyProductVariant[];
+  updated_at: string;
 };
 
 function parseLinkHeader(link: string | null): string | null {
@@ -55,31 +72,51 @@ export async function fetchShopifyCatalog(): Promise<CatalogItem[]> {
     }
 
     const data = (await res.json()) as any;
-    const products = data.products as any[];
+    const products = data.products as ShopifyProduct[];
 
     for (const p of products) {
-      const productTitle = p.title as string;
-      const handle = p.handle as string | undefined;
-      const category = p.product_type as string | undefined;
-      const updatedAt = p.updated_at as string | undefined;
-      const imageUrl = p.image?.src as string | undefined;
+      const productTitle = p.title;
+      const handle = p.handle;
+      const category = p.product_type || undefined;
+      const updatedAt = p.updated_at;
+      const description = p.body_html || undefined;
+      const vendor = p.vendor || undefined;
+      const tags = p.tags ? p.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : undefined;
+      const images = p.images?.map(img => img.src) || [];
+      const imageUrl = images[0] || undefined;
 
-      for (const v of p.variants as any[]) {
+      for (const v of p.variants) {
         const sku = (v.sku || '').trim();
         if (!sku) continue;
+        
         const price = String(v.price ?? '0');
-        const title = v.title && v.title !== 'Default Title' ? `${productTitle} - ${v.title}` : productTitle;
+        const compareAtPrice = v.compare_at_price ? String(v.compare_at_price) : undefined;
+        const variantTitle = v.title && v.title !== 'Default Title' ? v.title : undefined;
+        const title = variantTitle ? `${productTitle} - ${variantTitle}` : productTitle;
         const stock = typeof v.inventory_quantity === 'number' ? v.inventory_quantity : 0;
+        const barcode = v.barcode || undefined;
 
         items.push({
           title,
           sku,
+          barcode,
           price,
+          compareAtPrice,
           currency: 'USD',
           stock,
           imageUrl,
+          images: images.length > 0 ? images : undefined,
           category,
           productHandle: handle,
+          description,
+          vendor,
+          tags,
+          weight: v.weight || undefined,
+          weightUnit: v.weight_unit || undefined,
+          variantTitle,
+          productId: String(p.id),
+          variantId: String(v.id),
+          inventoryItemId: v.inventory_item_id ? String(v.inventory_item_id) : undefined,
           updatedAt,
           source: 'shopify'
         });

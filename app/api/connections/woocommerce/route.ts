@@ -151,8 +151,13 @@ export async function POST(request: NextRequest) {
     const existingInstallation = await InstallationRepo.getByDomain(shop);
     const installationId = existingInstallation?.id ?? await InstallationRepo.upsert(shop);
 
-    // Parse rules from body if provided (e.g., sync_price)
+    // Parse rules from body if provided (e.g., price_multiplier)
     const rules = (body?.rules && typeof body.rules === 'object') ? body.rules : null;
+
+    // Parse sync options with defaults
+    const syncPrice = body?.sync_price === true || body?.sync_price === 1 ? 1 : 0;
+    const syncCategories = body?.sync_categories === true || body?.sync_categories === 1 ? 1 : 0;
+    const createProducts = body?.create_products === false || body?.create_products === 0 ? 0 : 1; // Default true
 
     const connId = ulid();
     await ConnectionRepo.insert({
@@ -168,6 +173,9 @@ export async function POST(request: NextRequest) {
       consumer_secret: consumerSecret,
       access_token: null,
       rules_json: rules ? JSON.stringify(rules) : null,
+      sync_price: syncPrice,
+      sync_categories: syncCategories,
+      create_products: createProducts,
       last_synced_at: null
     });
 

@@ -65,6 +65,9 @@ export async function migrate() {
       consumer_secret TEXT,                  -- Woo
       access_token TEXT,                     -- Shopify destination token (if using manual token for now)
       rules_json TEXT,                       -- JSON blob for mapping/rules
+      sync_price INTEGER NOT NULL DEFAULT 0, -- 1 = sync prices, 0 = don't sync prices
+      sync_categories INTEGER NOT NULL DEFAULT 0, -- 1 = sync/create categories, 0 = don't
+      create_products INTEGER NOT NULL DEFAULT 1, -- 1 = create products if not exist, 0 = skip
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (installation_id) REFERENCES installations(id)
@@ -150,6 +153,31 @@ export async function migrate() {
   `;
   
   await execMigration(migrationSql);
+  
+  // Run additional migrations for new columns (safe to run multiple times)
+  await runColumnMigrations();
+}
+
+async function runColumnMigrations() {
+  // Add new sync option columns to connections table if they don't exist
+  // These are safe to run multiple times - they will fail silently if columns exist
+  const columnMigrations = [
+    `ALTER TABLE connections ADD COLUMN sync_price INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE connections ADD COLUMN sync_categories INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE connections ADD COLUMN create_products INTEGER NOT NULL DEFAULT 1`,
+  ];
+  
+  for (const sql of columnMigrations) {
+    try {
+      await execMigration(sql);
+      console.log('[DB] Migration applied:', sql.substring(0, 60) + '...');
+    } catch (err: any) {
+      // Column already exists - this is expected and fine
+      if (!err.message?.includes('duplicate column') && !err.message?.includes('already exists')) {
+        console.log('[DB] Migration skipped (column may exist):', sql.substring(0, 60) + '...');
+      }
+    }
+  }
 }
 
 export type ResellerRow = {
@@ -222,6 +250,9 @@ export type ConnectionRow = {
   consumer_secret: string | null;
   access_token: string | null;
   rules_json: string | null;
+  sync_price: number; // 1 = true, 0 = false
+  sync_categories: number; // 1 = true, 0 = false
+  create_products: number; // 1 = true, 0 = false
   last_synced_at?: string | null;
   created_at: string;
   updated_at: string;
@@ -344,9 +375,16 @@ export const ShopifyOAuthStateRepo = {
 export const ConnectionRepo = {
   async insert(conn: Omit<ConnectionRow, 'created_at' | 'updated_at'>) {
     const now = new Date().toISOString();
-    const stmt = getDb().prepare(`INSERT INTO connections (id, installation_id, type, name, status, dest_shop_domain, dest_location_id, base_url, consumer_key, consumer_secret, access_token, rules_json, created_at, updated_at)
-      VALUES (@id, @installation_id, @type, @name, @status, @dest_shop_domain, @dest_location_id, @base_url, @consumer_key, @consumer_secret, @access_token, @rules_json, @created_at, @updated_at)`);
-    const result = stmt.run({ ...conn, created_at: now, updated_at: now });
+    const stmt = getDb().prepare(`INSERT INTO connections (id, installation_id, type, name, status, dest_shop_domain, dest_location_id, base_url, consumer_key, consumer_secret, access_token, rules_json, sync_price, sync_categories, create_products, created_at, updated_at)
+      VALUES (@id, @installation_id, @type, @name, @status, @dest_shop_domain, @dest_location_id, @base_url, @consumer_key, @consumer_secret, @access_token, @rules_json, @sync_price, @sync_categories, @create_products, @created_at, @updated_at)`);
+    const result = stmt.run({ 
+      ...conn, 
+      sync_price: conn.sync_price ?? 0,
+      sync_categories: conn.sync_categories ?? 0,
+      create_products: conn.create_products ?? 1,
+      created_at: now, 
+      updated_at: now 
+    });
     if (result instanceof Promise) {
       await result;
     }
@@ -389,6 +427,30 @@ export const ConnectionRepo = {
     const now = new Date().toISOString();
     const stmt = getDb().prepare(`UPDATE connections SET rules_json=@rules_json, updated_at=@updated_at WHERE id=@id`);
     const result = stmt.run({ id, rules_json, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
+  },
+  async updateSyncOptions(id: string, options: { sync_price?: number; sync_categories?: number; create_products?: number }) {
+    const now = new Date().toISOString();
+    const updates: string[] = ['updated_at=@updated_at'];
+    const params: any = { id, updated_at: now };
+    
+    if (options.sync_price !== undefined) {
+      updates.push('sync_price=@sync_price');
+      params.sync_price = options.sync_price;
+    }
+    if (options.sync_categories !== undefined) {
+      updates.push('sync_categories=@sync_categories');
+      params.sync_categories = options.sync_categories;
+    }
+    if (options.create_products !== undefined) {
+      updates.push('create_products=@create_products');
+      params.create_products = options.create_products;
+    }
+    
+    const stmt = getDb().prepare(`UPDATE connections SET ${updates.join(', ')} WHERE id=@id`);
+    const result = stmt.run(params);
     if (result instanceof Promise) {
       await result;
     }
