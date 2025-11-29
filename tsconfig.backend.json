@@ -1,10 +1,20 @@
 {
-  "extends": "./tsconfig.json",
   "compilerOptions": {
-    "noEmit": false,
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
     "outDir": "dist",
     "rootDir": "src",
-    "jsx": "preserve"
+    "strict": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "lib": ["ES2022"],
+    "allowJs": true,
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": true,
+    "forceConsistentCasingInFileNames": true
   },
   "include": [
     "src/**/*"
@@ -15,4 +25,3 @@
     "app"
   ]
 }
-
