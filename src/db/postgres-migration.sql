@@ -42,6 +42,9 @@ CREATE TABLE IF NOT EXISTS connections (
   consumer_secret TEXT,
   access_token TEXT,
   rules_json TEXT,
+  sync_price INTEGER NOT NULL DEFAULT 0,
+  sync_categories INTEGER NOT NULL DEFAULT 0,
+  create_products INTEGER NOT NULL DEFAULT 1,
   last_synced_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -125,4 +128,27 @@ CREATE TABLE IF NOT EXISTS shopify_webhooks (
   FOREIGN KEY (installation_id) REFERENCES installations(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_shopify_webhooks_installation ON shopify_webhooks(installation_id);
+
+-- Migration: Add sync option columns to connections table (for existing databases)
+-- These will fail silently if columns already exist
+DO $$ 
+BEGIN
+  ALTER TABLE connections ADD COLUMN sync_price INTEGER NOT NULL DEFAULT 0;
+EXCEPTION
+  WHEN duplicate_column THEN NULL;
+END $$;
+
+DO $$ 
+BEGIN
+  ALTER TABLE connections ADD COLUMN sync_categories INTEGER NOT NULL DEFAULT 0;
+EXCEPTION
+  WHEN duplicate_column THEN NULL;
+END $$;
+
+DO $$ 
+BEGIN
+  ALTER TABLE connections ADD COLUMN create_products INTEGER NOT NULL DEFAULT 1;
+EXCEPTION
+  WHEN duplicate_column THEN NULL;
+END $$;
 
