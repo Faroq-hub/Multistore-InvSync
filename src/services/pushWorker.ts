@@ -468,8 +468,8 @@ async function pushToWoo(connId: string, log: (m: string) => void, filterSkus?: 
 }
 
 export function startPushWorker(log: (m: string) => void) {
-  log('[Push Worker] Starting push worker loop...');
-  console.log('[Push Worker] Starting push worker loop...');
+  log('[Push Worker] Starting push worker loop... v2');
+  console.log('[Push Worker] Starting push worker loop... v2');
   
   async function loop() {
     try {
