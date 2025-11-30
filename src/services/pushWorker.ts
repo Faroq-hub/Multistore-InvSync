@@ -17,7 +17,10 @@ import { fetchWooCatalog } from '../integrations/woocommerce';
 import { CatalogItem } from '../models/types';
 
 async function getSourceItems(filterSkus?: Set<string>): Promise<CatalogItem[]> {
+  console.log('[getSourceItems] Fetching from Shopify and WooCommerce...');
   const [shopify, woo] = await Promise.all([fetchShopifyCatalog(), fetchWooCatalog()]);
+  console.log(`[getSourceItems] Shopify items: ${shopify.length}, WooCommerce items: ${woo.length}`);
+  
   // Treat Shopify as primary; dedupe SKUs
   const map = new Map<string, CatalogItem>();
   for (const it of [...shopify, ...woo]) {
@@ -26,8 +29,11 @@ async function getSourceItems(filterSkus?: Set<string>): Promise<CatalogItem[]> 
     }
   }
   let items = Array.from(map.values());
+  console.log(`[getSourceItems] Unique items after dedup: ${items.length}`);
+  
   if (filterSkus && filterSkus.size > 0) {
     items = items.filter(i => filterSkus.has(i.sku));
+    console.log(`[getSourceItems] Items after filter: ${items.length}`);
   }
   return items;
 }
@@ -168,7 +174,10 @@ async function createProductInShopify(
 async function pushToShopify(connId: string, log: (m: string) => void, filterSkus?: Set<string>) {
   const conn = await ConnectionRepo.get(connId);
   if (!conn || !conn.dest_shop_domain || !conn.access_token) throw new Error('Invalid Shopify connection');
+  
+  log(`Fetching source items for connection: ${connId}`);
   const items = await getSourceItems(filterSkus);
+  log(`Found ${items.length} source items to process`);
 
   const fetch = await getFetch();
   const headers = {
@@ -183,6 +192,7 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
   const shouldCreateProducts = conn.create_products === 1;
 
   log(`Sync options - Price: ${shouldSyncPrice}, Create Products: ${shouldCreateProducts}, Categories: ${conn.sync_categories === 1}`);
+  log(`Destination: ${conn.dest_shop_domain}, Location ID: ${conn.dest_location_id}`);
 
   for (const raw of items) {
     const item = applyRules(raw, conn.rules_json);
