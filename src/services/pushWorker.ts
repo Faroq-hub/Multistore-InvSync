@@ -91,47 +91,64 @@ async function findProductInDestination(
   return null;
 }
 
-// Helper to create a new product in Shopify destination
+// Helper to create a new product in Shopify destination with multiple variants
 async function createProductInShopify(
   fetch: FetchFn,
   headers: Record<string, string>,
   domain: string,
   apiVersion: string,
-  item: CatalogItem,
+  items: CatalogItem[], // Array of variants for the same product
   conn: ConnectionRow,
   log: (m: string) => void
-): Promise<{ variant: any; product: any } | null> {
+): Promise<{ variants: Map<string, any>; product: any } | null> {
   const shouldSyncCategories = conn.sync_categories === 1;
+  const firstItem = items[0];
+  
+  // Get the base product title (without variant suffix)
+  const baseTitle = firstItem.productHandle 
+    ? firstItem.title.replace(` - ${firstItem.variantTitle}`, '').trim()
+    : firstItem.title;
+  
+  // Build variants array
+  const variants = items.map((item, index) => ({
+    sku: item.sku,
+    barcode: item.barcode || '',
+    price: item.price,
+    compare_at_price: item.compareAtPrice || null,
+    inventory_management: 'shopify',
+    inventory_policy: 'deny',
+    weight: item.weight || 0,
+    weight_unit: item.weightUnit || 'kg',
+    option1: item.variantTitle || 'Default Title',
+    position: index + 1,
+  }));
+
+  // Determine option name from variant titles
+  const hasVariants = items.length > 1 || (items[0].variantTitle && items[0].variantTitle !== 'Default Title');
   
   // Build the product payload
   const productPayload: any = {
     product: {
-      title: item.title,
-      body_html: item.description || '',
-      vendor: item.vendor || '',
-      product_type: shouldSyncCategories ? (item.category || '') : '',
-      tags: item.tags?.join(', ') || '',
+      title: baseTitle,
+      body_html: firstItem.description || '',
+      vendor: firstItem.vendor || '',
+      product_type: shouldSyncCategories ? (firstItem.category || '') : '',
+      tags: firstItem.tags?.join(', ') || '',
       status: 'active',
-      variants: [
-        {
-          sku: item.sku,
-          barcode: item.barcode || '',
-          price: item.price,
-          compare_at_price: item.compareAtPrice || null,
-          inventory_management: 'shopify',
-          inventory_policy: 'deny',
-          weight: item.weight || 0,
-          weight_unit: item.weightUnit || 'kg',
-        }
-      ]
+      variants: variants
     }
   };
 
-  // Add images if available
-  if (item.images && item.images.length > 0) {
-    productPayload.product.images = item.images.map(src => ({ src }));
-  } else if (item.imageUrl) {
-    productPayload.product.images = [{ src: item.imageUrl }];
+  // Add options if there are multiple variants
+  if (hasVariants) {
+    productPayload.product.options = [{ name: 'Option', values: items.map(i => i.variantTitle || 'Default Title') }];
+  }
+
+  // Add images if available (from first item, as they're usually shared)
+  if (firstItem.images && firstItem.images.length > 0) {
+    productPayload.product.images = firstItem.images.map(src => ({ src }));
+  } else if (firstItem.imageUrl) {
+    productPayload.product.images = [{ src: firstItem.imageUrl }];
   }
 
   const createUrl = `https://${domain}/admin/api/${apiVersion}/products.json`;
@@ -148,17 +165,66 @@ async function createProductInShopify(
 
   const createData: any = await createRes.json();
   const newProduct = createData.product;
-  const newVariant = newProduct.variants?.[0];
+  
+  // Map SKUs to created variants
+  const variantMap = new Map<string, any>();
+  for (const v of newProduct.variants || []) {
+    variantMap.set(v.sku, v);
+  }
 
-  log(`Created new product: ${item.title} (SKU: ${item.sku})`);
-  await AuditRepo.write({
-    level: 'info',
-    connection_id: conn.id,
-    sku: item.sku,
-    message: `Created new product: ${item.title}`
+  log(`Created new product with ${items.length} variant(s): ${baseTitle}`);
+  for (const item of items) {
+    await AuditRepo.write({
+      level: 'info',
+      connection_id: conn.id,
+      sku: item.sku,
+      message: `Created as variant of: ${baseTitle}`
+    });
+  }
+
+  return { variants: variantMap, product: newProduct };
+}
+
+// Helper to add a variant to an existing product
+async function addVariantToProduct(
+  fetch: FetchFn,
+  headers: Record<string, string>,
+  domain: string,
+  apiVersion: string,
+  productId: string,
+  item: CatalogItem,
+  log: (m: string) => void
+): Promise<any | null> {
+  const variantPayload = {
+    variant: {
+      sku: item.sku,
+      barcode: item.barcode || '',
+      price: item.price,
+      compare_at_price: item.compareAtPrice || null,
+      inventory_management: 'shopify',
+      inventory_policy: 'deny',
+      weight: item.weight || 0,
+      weight_unit: item.weightUnit || 'kg',
+      option1: item.variantTitle || 'Default Title',
+    }
+  };
+
+  const addUrl = `https://${domain}/admin/api/${apiVersion}/products/${productId}/variants.json`;
+  const addRes = await fetch(addUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(variantPayload)
   });
 
-  return { variant: newVariant, product: newProduct };
+  if (!addRes.ok) {
+    const errorText = await addRes.text();
+    log(`Failed to add variant ${item.sku}: ${addRes.status} - ${errorText}`);
+    return null;
+  }
+
+  const addData: any = await addRes.json();
+  log(`Added variant ${item.sku} to existing product`);
+  return addData.variant;
 }
 
 async function pushToShopify(connId: string, log: (m: string) => void, filterSkus?: Set<string>) {
@@ -184,75 +250,129 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
   log(`Sync options - Price: ${shouldSyncPrice}, Create Products: ${shouldCreateProducts}, Categories: ${conn.sync_categories === 1}`);
   log(`Destination: ${conn.dest_shop_domain}, Location ID: ${conn.dest_location_id}`);
 
+  // Group items by source productId to handle variants together
+  const productGroups = new Map<string, CatalogItem[]>();
   for (const raw of items) {
     const item = applyRules(raw, conn.rules_json);
-    try {
-      // Find product by SKU (strict matching only)
-      let found = await findProductInDestination(fetch, headers, conn.dest_shop_domain, apiVersion, item, log);
+    const key = item.productId || item.sku; // Use productId if available, otherwise treat as single product
+    if (!productGroups.has(key)) {
+      productGroups.set(key, []);
+    }
+    productGroups.get(key)!.push(item);
+  }
 
-      if (!found) {
-        // Product doesn't exist in destination
-        if (shouldCreateProducts) {
-          // Create the product
-          log(`Product not found, creating: ${item.sku}`);
-          found = await createProductInShopify(fetch, headers, conn.dest_shop_domain, apiVersion, item, conn, log);
-          if (!found) {
-            log(`Failed to create product: ${item.sku}`);
-            continue;
+  log(`Grouped into ${productGroups.size} products`);
+
+  // Track created products during this sync (productId -> destinationProductId)
+  const createdProducts = new Map<string, string>();
+
+  for (const [productKey, productItems] of productGroups) {
+    try {
+      // Check which variants already exist in destination
+      const existingVariants: { item: CatalogItem; variant: any; product: any }[] = [];
+      const missingVariants: CatalogItem[] = [];
+
+      for (const item of productItems) {
+        const found = await findProductInDestination(fetch, headers, conn.dest_shop_domain, apiVersion, item, log);
+        if (found) {
+          existingVariants.push({ item, variant: found.variant, product: found.product });
+        } else {
+          missingVariants.push(item);
+        }
+        await sleep(100); // Small delay between lookups
+      }
+
+      // Handle missing variants
+      if (missingVariants.length > 0 && shouldCreateProducts) {
+        if (existingVariants.length > 0) {
+          // Some variants exist - add missing ones to the existing product
+          const existingProductId = existingVariants[0].product?.id;
+          if (existingProductId) {
+            log(`Adding ${missingVariants.length} variant(s) to existing product ${existingProductId}`);
+            for (const item of missingVariants) {
+              const newVariant = await addVariantToProduct(fetch, headers, conn.dest_shop_domain, apiVersion, existingProductId, item, log);
+              if (newVariant) {
+                existingVariants.push({ item, variant: newVariant, product: existingVariants[0].product });
+              }
+              await sleep(250);
+            }
           }
         } else {
-          // Skip - product creation is disabled
+          // No variants exist - create the product with all variants
+          log(`Creating new product with ${missingVariants.length} variant(s)`);
+          const created = await createProductInShopify(fetch, headers, conn.dest_shop_domain, apiVersion, missingVariants, conn, log);
+          if (created) {
+            createdProducts.set(productKey, created.product.id);
+            // Add created variants to existingVariants for stock/price updates
+            for (const item of missingVariants) {
+              const v = created.variants.get(item.sku);
+              if (v) {
+                existingVariants.push({ item, variant: v, product: created.product });
+              }
+            }
+          }
+          await sleep(500); // Longer delay after product creation
+        }
+      } else if (missingVariants.length > 0) {
+        // Log skipped variants
+        for (const item of missingVariants) {
           const msg = `Product not found and creation disabled`;
           log(`${msg}: ${item.sku}`);
           await AuditRepo.write({ level: 'warn', connection_id: conn.id, sku: item.sku, message: msg });
-          continue;
         }
       }
 
-      const v = found.variant;
-
-      // Update price only if sync_price is enabled
-      if (shouldSyncPrice) {
-        const currentPrice = String(v.price ?? '');
-        const desiredPrice = String(item.price ?? '');
-        if (desiredPrice && desiredPrice !== currentPrice) {
-          const upUrl = `https://${conn.dest_shop_domain}/admin/api/${apiVersion}/variants/${v.id}.json`;
-          const priceRes = await fetch(upUrl, { 
-            method: 'PUT', 
-            headers, 
-            body: JSON.stringify({ variant: { id: v.id, price: desiredPrice } }) 
-          });
-          if (priceRes.ok) {
-            const msg = `Price updated ${currentPrice} -> ${desiredPrice}`;
-            log(`${msg} (${item.sku})`);
-            await AuditRepo.write({ level: 'info', connection_id: conn.id, sku: item.sku, message: msg });
+      // Update price and stock for all existing/created variants
+      for (const { item, variant: v } of existingVariants) {
+        try {
+          // Update price only if sync_price is enabled
+          if (shouldSyncPrice) {
+            const currentPrice = String(v.price ?? '');
+            const desiredPrice = String(item.price ?? '');
+            if (desiredPrice && desiredPrice !== currentPrice) {
+              const upUrl = `https://${conn.dest_shop_domain}/admin/api/${apiVersion}/variants/${v.id}.json`;
+              const priceRes = await fetch(upUrl, { 
+                method: 'PUT', 
+                headers, 
+                body: JSON.stringify({ variant: { id: v.id, price: desiredPrice } }) 
+              });
+              if (priceRes.ok) {
+                const msg = `Price updated ${currentPrice} -> ${desiredPrice}`;
+                log(`${msg} (${item.sku})`);
+                await AuditRepo.write({ level: 'info', connection_id: conn.id, sku: item.sku, message: msg });
+              }
+            }
           }
-        }
-      }
 
-      // Always update inventory if location provided
-      if (conn.dest_location_id && v.inventory_item_id != null && item.stock != null) {
-        const invUrl = `https://${conn.dest_shop_domain}/admin/api/${apiVersion}/inventory_levels/set.json`;
-        const invRes = await fetch(invUrl, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            location_id: Number(conn.dest_location_id),
-            inventory_item_id: Number(v.inventory_item_id),
-            available: Number(item.stock)
-          })
-        });
-        if (invRes.ok) {
-          const msg = `Stock set -> ${item.stock}`;
-          log(`${msg} (${item.sku})`);
-          await AuditRepo.write({ level: 'info', connection_id: conn.id, sku: item.sku, message: msg });
+          // Always update inventory if location provided
+          if (conn.dest_location_id && v.inventory_item_id != null && item.stock != null) {
+            const invUrl = `https://${conn.dest_shop_domain}/admin/api/${apiVersion}/inventory_levels/set.json`;
+            const invRes = await fetch(invUrl, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                location_id: Number(conn.dest_location_id),
+                inventory_item_id: Number(v.inventory_item_id),
+                available: Number(item.stock)
+              })
+            });
+            if (invRes.ok) {
+              const msg = `Stock set -> ${item.stock}`;
+              log(`${msg} (${item.sku})`);
+              await AuditRepo.write({ level: 'info', connection_id: conn.id, sku: item.sku, message: msg });
+            }
+          }
+          await sleep(200);
+        } catch (e: any) {
+          const emsg = `Error updating variant: ${e?.message || e}`;
+          log(`${emsg} (${item.sku})`);
+          await AuditRepo.write({ level: 'error', connection_id: conn.id, sku: item.sku, message: emsg });
         }
       }
-      await sleep(250);
     } catch (e: any) {
-      const emsg = `Error pushing SKU: ${e?.message || e}`;
-      log(`${emsg} (${item.sku})`);
-      await AuditRepo.write({ level: 'error', connection_id: conn.id, sku: item.sku, message: emsg });
+      const emsg = `Error processing product group: ${e?.message || e}`;
+      log(`${emsg} (${productKey})`);
+      await AuditRepo.write({ level: 'error', connection_id: conn.id, sku: productKey, message: emsg });
     }
   }
 }
