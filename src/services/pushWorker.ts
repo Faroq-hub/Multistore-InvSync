@@ -53,40 +53,26 @@ function applyRules(item: CatalogItem, rulesJson: string | null): CatalogItem {
   }
 }
 
-// Helper to find product in destination by SKU or barcode
+// Helper to find product in destination by SKU only (strict matching)
 async function findProductInDestination(
   fetch: FetchFn,
   headers: Record<string, string>,
   domain: string,
   apiVersion: string,
-  item: CatalogItem
+  item: CatalogItem,
+  log?: (m: string) => void
 ): Promise<{ variant: any; product: any } | null> {
-  // First try to find by SKU
+  // Only search by SKU - strict matching to avoid wrong product updates
   const skuUrl = `https://${domain}/admin/api/${apiVersion}/variants.json?sku=${encodeURIComponent(item.sku)}`;
   const skuRes = await fetch(skuUrl, { headers });
   if (skuRes.ok) {
     const skuData: any = await skuRes.json();
     if (skuData.variants && skuData.variants.length > 0) {
       const v = skuData.variants[0];
-      // Fetch the full product
-      const prodUrl = `https://${domain}/admin/api/${apiVersion}/products/${v.product_id}.json`;
-      const prodRes = await fetch(prodUrl, { headers });
-      if (prodRes.ok) {
-        const prodData: any = await prodRes.json();
-        return { variant: v, product: prodData.product };
-      }
-      return { variant: v, product: null };
-    }
-  }
-
-  // If not found by SKU and we have a barcode, try to find by barcode
-  if (item.barcode) {
-    const barcodeUrl = `https://${domain}/admin/api/${apiVersion}/variants.json?barcode=${encodeURIComponent(item.barcode)}`;
-    const barcodeRes = await fetch(barcodeUrl, { headers });
-    if (barcodeRes.ok) {
-      const barcodeData: any = await barcodeRes.json();
-      if (barcodeData.variants && barcodeData.variants.length > 0) {
-        const v = barcodeData.variants[0];
+      // Verify the SKU matches exactly (Shopify search can be fuzzy)
+      if (v.sku === item.sku) {
+        log?.(`Found matching SKU in destination: ${item.sku}`);
+        // Fetch the full product
         const prodUrl = `https://${domain}/admin/api/${apiVersion}/products/${v.product_id}.json`;
         const prodRes = await fetch(prodUrl, { headers });
         if (prodRes.ok) {
@@ -94,10 +80,14 @@ async function findProductInDestination(
           return { variant: v, product: prodData.product };
         }
         return { variant: v, product: null };
+      } else {
+        log?.(`SKU search returned non-exact match: searched "${item.sku}", found "${v.sku}" - skipping`);
       }
     }
   }
 
+  // SKU not found - log this for debugging
+  log?.(`No exact SKU match found in destination for: ${item.sku}`);
   return null;
 }
 
@@ -197,8 +187,8 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
   for (const raw of items) {
     const item = applyRules(raw, conn.rules_json);
     try {
-      // Find product by SKU or barcode
-      let found = await findProductInDestination(fetch, headers, conn.dest_shop_domain, apiVersion, item);
+      // Find product by SKU (strict matching only)
+      let found = await findProductInDestination(fetch, headers, conn.dest_shop_domain, apiVersion, item, log);
 
       if (!found) {
         // Product doesn't exist in destination
