@@ -355,8 +355,13 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
   if (!conn || !conn.dest_shop_domain || !conn.access_token) throw new Error('Invalid Shopify connection');
   
   log(`Fetching source items for connection: ${connId}`);
-  const items = await getSourceItems(filterSkus);
-  log(`Found ${items.length} source items to process`);
+  const allItems = await getSourceItems(filterSkus);
+  
+  // Filter to only include items with stock > 0
+  const items = allItems.filter(item => item.stock > 0);
+  const skippedCount = allItems.length - items.length;
+  
+  log(`Found ${allItems.length} source items, ${items.length} with stock (skipped ${skippedCount} out-of-stock items)`);
 
   const fetch = await getFetch();
   const headers = {
