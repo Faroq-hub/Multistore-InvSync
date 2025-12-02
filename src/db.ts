@@ -511,6 +511,11 @@ export const ConnectionRepo = {
     // Return the number of deleted rows
     const changes = result instanceof Promise ? (await result).changes : result.changes;
     return changes;
+  },
+  async listAllActive(): Promise<ConnectionRow[]> {
+    const stmt = getDb().prepare(`SELECT * FROM connections WHERE status='active' ORDER BY created_at DESC`);
+    const result = stmt.all();
+    return (result instanceof Promise ? await result : result) as ConnectionRow[];
   }
 };
 

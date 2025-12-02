@@ -13,6 +13,7 @@ import auditRoutes from './routes/audit';
 import { migrate } from './db';
 import { startScheduler } from './services/feedCache';
 import { startPushWorker } from './services/pushWorker';
+import { startScheduledSync } from './services/scheduledSync';
 
 export function buildServer() {
   const app = Fastify({
@@ -51,6 +52,7 @@ export function buildServer() {
     try {
       startScheduler((msg) => app.log.info(msg));
       startPushWorker((msg) => app.log.info(msg));
+      startScheduledSync((msg) => app.log.info(msg));
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       app.log.error({ err }, '[Worker] Failed to start background workers: ' + errorMessage);
