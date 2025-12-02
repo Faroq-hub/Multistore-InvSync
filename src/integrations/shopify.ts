@@ -53,6 +53,58 @@ function parseLinkHeader(link: string | null): string | null {
   return null;
 }
 
+// Fetch collections for a product
+async function fetchProductCollections(
+  fetch: FetchFn,
+  domain: string,
+  apiVersion: string,
+  accessToken: string,
+  productId: string
+): Promise<{ id: string; title: string; handle: string }[]> {
+  try {
+    const url = `https://${domain}/admin/api/${apiVersion}/collects.json?product_id=${productId}`;
+    const res = await fetch(url, {
+      headers: {
+        'X-Shopify-Access-Token': accessToken,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!res.ok) return [];
+    
+    const data = (await res.json()) as any;
+    const collects = data.collects || [];
+    
+    // Fetch collection details for each collect
+    const collections: { id: string; title: string; handle: string }[] = [];
+    for (const collect of collects) {
+      const collUrl = `https://${domain}/admin/api/${apiVersion}/collections/${collect.collection_id}.json`;
+      const collRes = await fetch(collUrl, {
+        headers: {
+          'X-Shopify-Access-Token': accessToken,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (collRes.ok) {
+        const collData = (await collRes.json()) as any;
+        const coll = collData.collection;
+        if (coll) {
+          collections.push({
+            id: String(coll.id),
+            title: coll.title,
+            handle: coll.handle
+          });
+        }
+      }
+    }
+    
+    return collections;
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchShopifyCatalog(): Promise<CatalogItem[]> {
   if (!config.shopify.shopDomain || !config.shopify.adminAccessToken) return [];
 
@@ -61,6 +113,10 @@ export async function fetchShopifyCatalog(): Promise<CatalogItem[]> {
   let pageUrl: string | null = url;
 
   const fetch = await getFetch();
+  
+  // Cache collections per product to avoid duplicate fetches
+  const productCollectionsCache = new Map<string, { id: string; title: string; handle: string }[]>();
+  
   while (pageUrl) {
     const res = await fetch(pageUrl, {
       headers: {
@@ -87,6 +143,19 @@ export async function fetchShopifyCatalog(): Promise<CatalogItem[]> {
       const tags = p.tags ? p.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : undefined;
       const images = p.images?.map(img => img.src) || [];
       const imageUrl = images[0] || undefined;
+      
+      // Fetch collections for this product (cached)
+      let collections = productCollectionsCache.get(String(p.id));
+      if (!collections) {
+        collections = await fetchProductCollections(
+          fetch,
+          config.shopify.shopDomain,
+          config.shopify.apiVersion,
+          config.shopify.adminAccessToken,
+          String(p.id)
+        );
+        productCollectionsCache.set(String(p.id), collections);
+      }
 
       for (const v of p.variants) {
         const sku = (v.sku || '').trim();
@@ -121,7 +190,8 @@ export async function fetchShopifyCatalog(): Promise<CatalogItem[]> {
           variantId: String(v.id),
           inventoryItemId: v.inventory_item_id ? String(v.inventory_item_id) : undefined,
           updatedAt,
-          source: 'shopify'
+          source: 'shopify',
+          collections: collections.length > 0 ? collections : undefined
         });
       }
     }

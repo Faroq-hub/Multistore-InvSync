@@ -21,6 +21,8 @@ export type CatalogItem = {
     inventoryItemId?: string;
     updatedAt?: string;
     source: 'shopify' | 'woocommerce';
+    // Collection data for syncing
+    collections?: { id: string; title: string; handle: string }[];
   };
 
 export type SyncOptions = {

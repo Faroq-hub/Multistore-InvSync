@@ -91,6 +91,112 @@ async function findProductInDestination(
   return null;
 }
 
+// Cache for destination collections (title -> collection data)
+const destCollectionCache = new Map<string, { id: string; title: string; handle: string }>();
+
+// Helper to find or create a collection in destination
+async function findOrCreateCollection(
+  fetch: FetchFn,
+  headers: Record<string, string>,
+  domain: string,
+  apiVersion: string,
+  collectionTitle: string,
+  log: (m: string) => void
+): Promise<{ id: string; title: string; handle: string } | null> {
+  // Check cache first
+  if (destCollectionCache.has(collectionTitle)) {
+    return destCollectionCache.get(collectionTitle)!;
+  }
+
+  try {
+    // Search for existing collection by title
+    const searchUrl = `https://${domain}/admin/api/${apiVersion}/custom_collections.json?title=${encodeURIComponent(collectionTitle)}`;
+    const searchRes = await fetch(searchUrl, { headers });
+    
+    if (searchRes.ok) {
+      const searchData: any = await searchRes.json();
+      const collections = searchData.custom_collections || [];
+      
+      // Find exact match
+      const existing = collections.find((c: any) => c.title.toLowerCase() === collectionTitle.toLowerCase());
+      if (existing) {
+        const result = { id: String(existing.id), title: existing.title, handle: existing.handle };
+        destCollectionCache.set(collectionTitle, result);
+        return result;
+      }
+    }
+
+    // Collection doesn't exist, create it
+    const createUrl = `https://${domain}/admin/api/${apiVersion}/custom_collections.json`;
+    const createRes = await fetch(createUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        custom_collection: {
+          title: collectionTitle,
+          published: true
+        }
+      })
+    });
+
+    if (createRes.ok) {
+      const createData: any = await createRes.json();
+      const newColl = createData.custom_collection;
+      if (newColl) {
+        const result = { id: String(newColl.id), title: newColl.title, handle: newColl.handle };
+        destCollectionCache.set(collectionTitle, result);
+        log(`Created collection: ${collectionTitle}`);
+        return result;
+      }
+    } else {
+      const errorText = await createRes.text();
+      log(`Failed to create collection "${collectionTitle}": ${createRes.status} - ${errorText}`);
+    }
+  } catch (e: any) {
+    log(`Error with collection "${collectionTitle}": ${e?.message || e}`);
+  }
+
+  return null;
+}
+
+// Helper to add a product to a collection
+async function addProductToCollection(
+  fetch: FetchFn,
+  headers: Record<string, string>,
+  domain: string,
+  apiVersion: string,
+  productId: string,
+  collectionId: string,
+  log: (m: string) => void
+): Promise<boolean> {
+  try {
+    const url = `https://${domain}/admin/api/${apiVersion}/collects.json`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        collect: {
+          product_id: Number(productId),
+          collection_id: Number(collectionId)
+        }
+      })
+    });
+
+    if (res.ok) {
+      return true;
+    } else {
+      const errorText = await res.text();
+      // Ignore "already exists" errors
+      if (!errorText.includes('already exists')) {
+        log(`Failed to add product to collection: ${res.status} - ${errorText}`);
+      }
+    }
+  } catch (e: any) {
+    log(`Error adding product to collection: ${e?.message || e}`);
+  }
+  return false;
+}
+
 // Helper to create a new product in Shopify destination with multiple variants
 async function createProductInShopify(
   fetch: FetchFn,
@@ -180,6 +286,23 @@ async function createProductInShopify(
       sku: item.sku,
       message: `Created as variant of: ${baseTitle}`
     });
+  }
+
+  // Sync collections if enabled
+  const shouldSyncCollections = conn.sync_categories === 1;
+  if (shouldSyncCollections && firstItem.collections && firstItem.collections.length > 0) {
+    log(`Adding product to ${firstItem.collections.length} collection(s)`);
+    for (const sourceCollection of firstItem.collections) {
+      // Find or create the collection in destination
+      const destCollection = await findOrCreateCollection(
+        fetch, headers, domain, apiVersion, sourceCollection.title, log
+      );
+      if (destCollection) {
+        await addProductToCollection(
+          fetch, headers, domain, apiVersion, String(newProduct.id), destCollection.id, log
+        );
+      }
+    }
   }
 
   return { variants: variantMap, product: newProduct };
@@ -367,6 +490,28 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
           const emsg = `Error updating variant: ${e?.message || e}`;
           log(`${emsg} (${item.sku})`);
           await AuditRepo.write({ level: 'error', connection_id: conn.id, sku: item.sku, message: emsg });
+        }
+      }
+
+      // Sync collections for existing products (if sync_categories enabled and product wasn't just created)
+      const shouldSyncCollections = conn.sync_categories === 1;
+      if (shouldSyncCollections && existingVariants.length > 0 && !createdProducts.has(productKey)) {
+        const firstItem = existingVariants[0].item;
+        const productId = existingVariants[0].product?.id;
+        
+        if (productId && firstItem.collections && firstItem.collections.length > 0) {
+          log(`Syncing ${firstItem.collections.length} collection(s) for existing product`);
+          for (const sourceCollection of firstItem.collections) {
+            const destCollection = await findOrCreateCollection(
+              fetch, headers, conn.dest_shop_domain, apiVersion, sourceCollection.title, log
+            );
+            if (destCollection) {
+              await addProductToCollection(
+                fetch, headers, conn.dest_shop_domain, apiVersion, String(productId), destCollection.id, log
+              );
+            }
+            await sleep(100);
+          }
         }
       }
     } catch (e: any) {
