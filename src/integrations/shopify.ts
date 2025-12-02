@@ -53,14 +53,16 @@ function parseLinkHeader(link: string | null): string | null {
   return null;
 }
 
-// Fetch collections for a product
+import { CollectionInfo } from '../models/types';
+
+// Fetch collections for a product with full details including rules
 async function fetchProductCollections(
   fetch: FetchFn,
   domain: string,
   apiVersion: string,
   accessToken: string,
   productId: string
-): Promise<{ id: string; title: string; handle: string }[]> {
+): Promise<CollectionInfo[]> {
   try {
     const url = `https://${domain}/admin/api/${apiVersion}/collects.json?product_id=${productId}`;
     const res = await fetch(url, {
@@ -76,24 +78,62 @@ async function fetchProductCollections(
     const collects = data.collects || [];
     
     // Fetch collection details for each collect
-    const collections: { id: string; title: string; handle: string }[] = [];
+    const collections: CollectionInfo[] = [];
+    
     for (const collect of collects) {
-      const collUrl = `https://${domain}/admin/api/${apiVersion}/collections/${collect.collection_id}.json`;
-      const collRes = await fetch(collUrl, {
+      // First try to get as smart collection (has rules)
+      const smartUrl = `https://${domain}/admin/api/${apiVersion}/smart_collections/${collect.collection_id}.json`;
+      const smartRes = await fetch(smartUrl, {
         headers: {
           'X-Shopify-Access-Token': accessToken,
           'Content-Type': 'application/json'
         }
       });
       
-      if (collRes.ok) {
-        const collData = (await collRes.json()) as any;
-        const coll = collData.collection;
-        if (coll) {
+      if (smartRes.ok) {
+        const smartData = (await smartRes.json()) as any;
+        const smartColl = smartData.smart_collection;
+        if (smartColl) {
           collections.push({
-            id: String(coll.id),
-            title: coll.title,
-            handle: coll.handle
+            id: String(smartColl.id),
+            title: smartColl.title,
+            handle: smartColl.handle,
+            body_html: smartColl.body_html || undefined,
+            sort_order: smartColl.sort_order || undefined,
+            collection_type: 'smart',
+            disjunctive: smartColl.disjunctive || false,
+            rules: smartColl.rules?.map((r: any) => ({
+              column: r.column,
+              relation: r.relation,
+              condition: r.condition
+            })),
+            image: smartColl.image ? { src: smartColl.image.src, alt: smartColl.image.alt } : undefined
+          });
+          continue;
+        }
+      }
+      
+      // Try as custom collection
+      const customUrl = `https://${domain}/admin/api/${apiVersion}/custom_collections/${collect.collection_id}.json`;
+      const customRes = await fetch(customUrl, {
+        headers: {
+          'X-Shopify-Access-Token': accessToken,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (customRes.ok) {
+        const customData = (await customRes.json()) as any;
+        const customColl = customData.custom_collection;
+        if (customColl) {
+          collections.push({
+            id: String(customColl.id),
+            title: customColl.title,
+            handle: customColl.handle,
+            body_html: customColl.body_html || undefined,
+            sort_order: customColl.sort_order || undefined,
+            collection_type: 'custom',
+            image: customColl.image ? { src: customColl.image.src, alt: customColl.image.alt } : undefined
           });
         }
       }

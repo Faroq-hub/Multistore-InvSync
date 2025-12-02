@@ -14,7 +14,7 @@ const getFetch = async (): Promise<FetchFn> => {
 };
 import { fetchShopifyCatalog } from '../integrations/shopify';
 import { fetchWooCatalog } from '../integrations/woocommerce';
-import { CatalogItem } from '../models/types';
+import { CatalogItem, CollectionInfo } from '../models/types';
 
 async function getSourceItems(filterSkus?: Set<string>): Promise<CatalogItem[]> {
   console.log('[getSourceItems] Fetching from Shopify and WooCommerce...');
@@ -92,25 +92,84 @@ async function findProductInDestination(
 }
 
 // Cache for destination collections (title -> collection data)
-const destCollectionCache = new Map<string, { id: string; title: string; handle: string }>();
+const destCollectionCache = new Map<string, { id: string; title: string; handle: string; collection_type: 'smart' | 'custom' }>();
 
-// Helper to find or create a collection in destination
+// Helper to find or create a collection in destination with proper type and rules
 async function findOrCreateCollection(
   fetch: FetchFn,
   headers: Record<string, string>,
   domain: string,
   apiVersion: string,
-  collectionTitle: string,
+  sourceCollection: CollectionInfo,
   log: (m: string) => void
-): Promise<{ id: string; title: string; handle: string } | null> {
+): Promise<{ id: string; title: string; handle: string; collection_type: 'smart' | 'custom' } | null> {
+  const cacheKey = sourceCollection.title;
+  
   // Check cache first
-  if (destCollectionCache.has(collectionTitle)) {
-    return destCollectionCache.get(collectionTitle)!;
+  if (destCollectionCache.has(cacheKey)) {
+    return destCollectionCache.get(cacheKey)!;
   }
 
   try {
-    // Search for existing collection by title
-    const searchUrl = `https://${domain}/admin/api/${apiVersion}/custom_collections.json?title=${encodeURIComponent(collectionTitle)}`;
+    // First check if smart collection exists with same title
+    if (sourceCollection.collection_type === 'smart') {
+      const smartSearchUrl = `https://${domain}/admin/api/${apiVersion}/smart_collections.json?title=${encodeURIComponent(sourceCollection.title)}`;
+      const smartSearchRes = await fetch(smartSearchUrl, { headers });
+      
+      if (smartSearchRes.ok) {
+        const smartData: any = await smartSearchRes.json();
+        const smartCollections = smartData.smart_collections || [];
+        const existingSmart = smartCollections.find((c: any) => c.title.toLowerCase() === sourceCollection.title.toLowerCase());
+        
+        if (existingSmart) {
+          const result = { id: String(existingSmart.id), title: existingSmart.title, handle: existingSmart.handle, collection_type: 'smart' as const };
+          destCollectionCache.set(cacheKey, result);
+          log(`Found existing smart collection: ${sourceCollection.title}`);
+          return result;
+        }
+      }
+      
+      // Create smart collection with rules
+      const createSmartUrl = `https://${domain}/admin/api/${apiVersion}/smart_collections.json`;
+      const smartPayload: any = {
+        smart_collection: {
+          title: sourceCollection.title,
+          body_html: sourceCollection.body_html || '',
+          published: true,
+          disjunctive: sourceCollection.disjunctive || false,
+          rules: sourceCollection.rules || []
+        }
+      };
+      
+      // Add sort order if specified
+      if (sourceCollection.sort_order) {
+        smartPayload.smart_collection.sort_order = sourceCollection.sort_order;
+      }
+      
+      const createSmartRes = await fetch(createSmartUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(smartPayload)
+      });
+      
+      if (createSmartRes.ok) {
+        const createData: any = await createSmartRes.json();
+        const newColl = createData.smart_collection;
+        if (newColl) {
+          const result = { id: String(newColl.id), title: newColl.title, handle: newColl.handle, collection_type: 'smart' as const };
+          destCollectionCache.set(cacheKey, result);
+          log(`Created smart collection with ${sourceCollection.rules?.length || 0} rule(s): ${sourceCollection.title}`);
+          return result;
+        }
+      } else {
+        const errorText = await createSmartRes.text();
+        log(`Failed to create smart collection "${sourceCollection.title}": ${createSmartRes.status} - ${errorText}`);
+        // Fall through to try creating as custom collection
+      }
+    }
+    
+    // Search for existing custom collection by title
+    const searchUrl = `https://${domain}/admin/api/${apiVersion}/custom_collections.json?title=${encodeURIComponent(sourceCollection.title)}`;
     const searchRes = await fetch(searchUrl, { headers });
     
     if (searchRes.ok) {
@@ -118,42 +177,51 @@ async function findOrCreateCollection(
       const collections = searchData.custom_collections || [];
       
       // Find exact match
-      const existing = collections.find((c: any) => c.title.toLowerCase() === collectionTitle.toLowerCase());
+      const existing = collections.find((c: any) => c.title.toLowerCase() === sourceCollection.title.toLowerCase());
       if (existing) {
-        const result = { id: String(existing.id), title: existing.title, handle: existing.handle };
-        destCollectionCache.set(collectionTitle, result);
+        const result = { id: String(existing.id), title: existing.title, handle: existing.handle, collection_type: 'custom' as const };
+        destCollectionCache.set(cacheKey, result);
+        log(`Found existing custom collection: ${sourceCollection.title}`);
         return result;
       }
     }
 
-    // Collection doesn't exist, create it
+    // Collection doesn't exist, create as custom collection
     const createUrl = `https://${domain}/admin/api/${apiVersion}/custom_collections.json`;
+    const customPayload: any = {
+      custom_collection: {
+        title: sourceCollection.title,
+        body_html: sourceCollection.body_html || '',
+        published: true
+      }
+    };
+    
+    // Add sort order if specified
+    if (sourceCollection.sort_order) {
+      customPayload.custom_collection.sort_order = sourceCollection.sort_order;
+    }
+    
     const createRes = await fetch(createUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify({
-        custom_collection: {
-          title: collectionTitle,
-          published: true
-        }
-      })
+      body: JSON.stringify(customPayload)
     });
 
     if (createRes.ok) {
       const createData: any = await createRes.json();
       const newColl = createData.custom_collection;
       if (newColl) {
-        const result = { id: String(newColl.id), title: newColl.title, handle: newColl.handle };
-        destCollectionCache.set(collectionTitle, result);
-        log(`Created collection: ${collectionTitle}`);
+        const result = { id: String(newColl.id), title: newColl.title, handle: newColl.handle, collection_type: 'custom' as const };
+        destCollectionCache.set(cacheKey, result);
+        log(`Created custom collection: ${sourceCollection.title}`);
         return result;
       }
     } else {
       const errorText = await createRes.text();
-      log(`Failed to create collection "${collectionTitle}": ${createRes.status} - ${errorText}`);
+      log(`Failed to create custom collection "${sourceCollection.title}": ${createRes.status} - ${errorText}`);
     }
   } catch (e: any) {
-    log(`Error with collection "${collectionTitle}": ${e?.message || e}`);
+    log(`Error with collection "${sourceCollection.title}": ${e?.message || e}`);
   }
 
   return null;
@@ -293,14 +361,19 @@ async function createProductInShopify(
   if (shouldSyncCollections && firstItem.collections && firstItem.collections.length > 0) {
     log(`Adding product to ${firstItem.collections.length} collection(s)`);
     for (const sourceCollection of firstItem.collections) {
-      // Find or create the collection in destination
+      // Find or create the collection in destination (with same type and rules)
       const destCollection = await findOrCreateCollection(
-        fetch, headers, domain, apiVersion, sourceCollection.title, log
+        fetch, headers, domain, apiVersion, sourceCollection, log
       );
       if (destCollection) {
-        await addProductToCollection(
-          fetch, headers, domain, apiVersion, String(newProduct.id), destCollection.id, log
-        );
+        // Only add to custom collections manually - smart collections auto-include products based on rules
+        if (destCollection.collection_type === 'custom') {
+          await addProductToCollection(
+            fetch, headers, domain, apiVersion, String(newProduct.id), destCollection.id, log
+          );
+        } else {
+          log(`Product will be auto-added to smart collection "${destCollection.title}" based on rules`);
+        }
       }
     }
   }
@@ -508,12 +581,17 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
           log(`Syncing ${firstItem.collections.length} collection(s) for existing product`);
           for (const sourceCollection of firstItem.collections) {
             const destCollection = await findOrCreateCollection(
-              fetch, headers, conn.dest_shop_domain, apiVersion, sourceCollection.title, log
+              fetch, headers, conn.dest_shop_domain, apiVersion, sourceCollection, log
             );
             if (destCollection) {
-              await addProductToCollection(
-                fetch, headers, conn.dest_shop_domain, apiVersion, String(productId), destCollection.id, log
-              );
+              // Only add to custom collections manually - smart collections auto-include products based on rules
+              if (destCollection.collection_type === 'custom') {
+                await addProductToCollection(
+                  fetch, headers, conn.dest_shop_domain, apiVersion, String(productId), destCollection.id, log
+                );
+              } else {
+                log(`Product will be auto-added to smart collection "${destCollection.title}" based on rules`);
+              }
             }
             await sleep(100);
           }

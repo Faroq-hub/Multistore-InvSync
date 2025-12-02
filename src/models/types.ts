@@ -1,3 +1,23 @@
+// Collection info with full details including smart collection rules
+export type CollectionInfo = {
+  id: string;
+  title: string;
+  handle: string;
+  body_html?: string;
+  sort_order?: string;
+  collection_type: 'smart' | 'custom';
+  disjunctive?: boolean; // For smart collections: true = any condition, false = all conditions
+  rules?: Array<{
+    column: string;
+    relation: string;
+    condition: string;
+  }>;
+  image?: {
+    src: string;
+    alt?: string;
+  };
+};
+
 export type CatalogItem = {
     title: string;
     sku: string;
@@ -21,8 +41,8 @@ export type CatalogItem = {
     inventoryItemId?: string;
     updatedAt?: string;
     source: 'shopify' | 'woocommerce';
-    // Collection data for syncing
-    collections?: { id: string; title: string; handle: string }[];
+    // Collection data for syncing (with full details including rules)
+    collections?: CollectionInfo[];
   };
 
 export type SyncOptions = {
