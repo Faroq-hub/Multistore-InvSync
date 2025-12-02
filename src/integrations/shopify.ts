@@ -155,7 +155,7 @@ export async function fetchShopifyCatalog(): Promise<CatalogItem[]> {
   const fetch = await getFetch();
   
   // Cache collections per product to avoid duplicate fetches
-  const productCollectionsCache = new Map<string, { id: string; title: string; handle: string }[]>();
+  const productCollectionsCache = new Map<string, CollectionInfo[]>();
   
   while (pageUrl) {
     const res = await fetch(pageUrl, {
