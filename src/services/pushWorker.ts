@@ -334,16 +334,28 @@ async function createProductInShopify(
 
   if (!createRes.ok) {
     const errorText = await createRes.text();
+    log(`❌ Shopify API error ${createRes.status}: ${errorText}`);
     throw new Error(`Failed to create product: ${createRes.status} - ${errorText}`);
   }
 
   const createData: any = await createRes.json();
   const newProduct = createData.product;
   
+  if (!newProduct || !newProduct.id) {
+    log(`❌ Invalid product creation response: ${JSON.stringify(createData).substring(0, 200)}`);
+    throw new Error(`Product creation succeeded but response missing product data`);
+  }
+  
   // Map SKUs to created variants
   const variantMap = new Map<string, any>();
   for (const v of newProduct.variants || []) {
-    variantMap.set(v.sku, v);
+    if (v.sku) {
+      variantMap.set(v.sku, v);
+    }
+  }
+  
+  if (variantMap.size === 0) {
+    log(`⚠️  Warning: Product created but no variants with SKUs found in response`);
   }
 
   log(`Created new product with ${items.length} variant(s): ${baseTitle}`);
@@ -430,11 +442,14 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
   log(`Fetching source items for connection: ${connId}`);
   const allItems = await getSourceItems(filterSkus);
   
-  // Filter to only include items with stock > 0
+  // Filter to only include items with stock > 0 (but log this clearly)
   const items = allItems.filter(item => item.stock > 0);
   const skippedCount = allItems.length - items.length;
   
-  log(`Found ${allItems.length} source items, ${items.length} with stock (skipped ${skippedCount} out-of-stock items)`);
+  log(`Found ${allItems.length} source items, ${items.length} with stock > 0 (skipped ${skippedCount} out-of-stock items)`);
+  if (skippedCount > 0) {
+    log(`⚠️  Note: Products with stock <= 0 are not synced. If you need to sync out-of-stock products, this filter needs to be removed.`);
+  }
 
   const fetch = await getFetch();
   const headers = {
@@ -450,6 +465,10 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
 
   log(`Sync options - Price: ${shouldSyncPrice}, Create Products: ${shouldCreateProducts}, Categories: ${conn.sync_categories === 1}`);
   log(`Destination: ${conn.dest_shop_domain}, Location ID: ${conn.dest_location_id}`);
+  
+  if (!shouldCreateProducts) {
+    log(`⚠️  WARNING: create_products is disabled. Products will NOT be created, only existing products will be updated.`);
+  }
 
   // Group items by source productId to handle variants together
   const productGroups = new Map<string, CatalogItem[]>();
@@ -500,17 +519,29 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
           }
         } else {
           // No variants exist - create the product with all variants
-          log(`Creating new product with ${missingVariants.length} variant(s)`);
-          const created = await createProductInShopify(fetch, headers, conn.dest_shop_domain, apiVersion, missingVariants, conn, log);
-          if (created) {
-            createdProducts.set(productKey, created.product.id);
-            // Add created variants to existingVariants for stock/price updates
-            for (const item of missingVariants) {
-              const v = created.variants.get(item.sku);
-              if (v) {
-                existingVariants.push({ item, variant: v, product: created.product });
+          log(`Creating new product with ${missingVariants.length} variant(s): ${missingVariants[0]?.title || 'Unknown'}`);
+          try {
+            const created = await createProductInShopify(fetch, headers, conn.dest_shop_domain, apiVersion, missingVariants, conn, log);
+            if (created && created.product) {
+              createdProducts.set(productKey, created.product.id);
+              log(`✅ Successfully created product ID ${created.product.id} with ${missingVariants.length} variant(s)`);
+              // Add created variants to existingVariants for stock/price updates
+              for (const item of missingVariants) {
+                const v = created.variants.get(item.sku);
+                if (v) {
+                  existingVariants.push({ item, variant: v, product: created.product });
+                } else {
+                  log(`⚠️  Warning: Created product but variant for SKU ${item.sku} not found in response`);
+                }
               }
+            } else {
+              log(`❌ Failed to create product: createProductInShopify returned null/undefined`);
+              await AuditRepo.write({ level: 'error', connection_id: conn.id, sku: productKey, message: 'Product creation returned null' });
             }
+          } catch (createErr: any) {
+            log(`❌ Error creating product: ${createErr?.message || createErr}`);
+            await AuditRepo.write({ level: 'error', connection_id: conn.id, sku: productKey, message: `Product creation failed: ${createErr?.message || createErr}` });
+            throw createErr; // Re-throw to be caught by outer try-catch
           }
           await sleep(500); // Longer delay after product creation
         }
@@ -831,9 +862,15 @@ export function startPushWorker(log: (m: string) => void) {
         } else {
           await pushToWoo(conn.id, (m) => log(`[woo:${conn.id}] ${m}`), skus);
         }
+        // Update last_synced_at after successful sync
+        await ConnectionRepo.updateLastSyncedAt(conn.id);
         await JobRepo.succeed(job.id);
+        log(`[Push Worker] Job ${job.id} completed successfully`);
       } catch (err: any) {
-        await JobRepo.fail(job.id, err?.message || String(err));
+        const errorMsg = err?.message || String(err);
+        log(`[Push Worker] Job ${job.id} failed: ${errorMsg}`);
+        console.error(`[Push Worker] Job ${job.id} failed:`, err);
+        await JobRepo.fail(job.id, errorMsg);
         // Simple backoff before next iteration after a failure
         await new Promise(r => setTimeout(r, 1000));
       }

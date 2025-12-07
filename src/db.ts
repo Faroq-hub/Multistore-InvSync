@@ -495,6 +495,14 @@ export const ConnectionRepo = {
       await result;
     }
   },
+  async updateLastSyncedAt(id: string) {
+    const now = new Date().toISOString();
+    const stmt = getDb().prepare(`UPDATE connections SET last_synced_at=@last_synced_at, updated_at=@updated_at WHERE id=@id`);
+    const result = stmt.run({ id, last_synced_at: now, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
+  },
   async delete(id: string) {
     const stmt = getDb().prepare(`DELETE FROM connections WHERE id=@id`);
     const result = stmt.run({ id });
