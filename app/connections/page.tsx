@@ -353,7 +353,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
       setToast({ content: 'Connection updated successfully' });
       setEditModalOpen(false);
       setConnectionToEdit(null);
-      setEditFormData({ name: '', dest_location_id: '', sync_price: true });
+      setEditFormData({ name: '', dest_location_id: '', access_token: '', sync_price: true });
       fetchConnections();
     } catch (err) {
       setToast({ content: err instanceof Error ? err.message : 'Failed to update connection', error: true });
