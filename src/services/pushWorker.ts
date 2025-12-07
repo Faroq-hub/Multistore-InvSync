@@ -485,6 +485,11 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
 
   // Track created products during this sync (productId -> destinationProductId)
   const createdProducts = new Map<string, string>();
+  
+  let totalExisting = 0;
+  let totalMissing = 0;
+  let totalCreated = 0;
+  let totalErrors = 0;
 
   for (const [productKey, productItems] of productGroups) {
     try {
@@ -492,15 +497,21 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
       const existingVariants: { item: CatalogItem; variant: any; product: any }[] = [];
       const missingVariants: CatalogItem[] = [];
 
+      log(`Checking product group "${productKey}" with ${productItems.length} variant(s)`);
       for (const item of productItems) {
         const found = await findProductInDestination(fetch, headers, conn.dest_shop_domain, apiVersion, item, log);
         if (found) {
           existingVariants.push({ item, variant: found.variant, product: found.product });
+          totalExisting++;
         } else {
           missingVariants.push(item);
+          totalMissing++;
+          log(`Product with SKU ${item.sku} not found in destination - will be created if create_products is enabled`);
         }
         await sleep(100); // Small delay between lookups
       }
+      
+      log(`Product group "${productKey}": ${existingVariants.length} existing, ${missingVariants.length} missing`);
 
       // Handle missing variants
       if (missingVariants.length > 0 && shouldCreateProducts) {
@@ -519,12 +530,16 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
           }
         } else {
           // No variants exist - create the product with all variants
-          log(`Creating new product with ${missingVariants.length} variant(s): ${missingVariants[0]?.title || 'Unknown'}`);
+          log(`🔄 Creating new product with ${missingVariants.length} variant(s): ${missingVariants[0]?.title || 'Unknown'}`);
+          log(`   SKUs to create: ${missingVariants.map(i => i.sku).join(', ')}`);
           try {
             const created = await createProductInShopify(fetch, headers, conn.dest_shop_domain, apiVersion, missingVariants, conn, log);
             if (created && created.product) {
               createdProducts.set(productKey, created.product.id);
+              totalCreated++;
               log(`✅ Successfully created product ID ${created.product.id} with ${missingVariants.length} variant(s)`);
+              log(`   Product title: ${created.product.title}`);
+              log(`   Product handle: ${created.product.handle}`);
               // Add created variants to existingVariants for stock/price updates
               for (const item of missingVariants) {
                 const v = created.variants.get(item.sku);
@@ -535,11 +550,14 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
                 }
               }
             } else {
+              totalErrors++;
               log(`❌ Failed to create product: createProductInShopify returned null/undefined`);
               await AuditRepo.write({ level: 'error', connection_id: conn.id, sku: productKey, message: 'Product creation returned null' });
             }
           } catch (createErr: any) {
+            totalErrors++;
             log(`❌ Error creating product: ${createErr?.message || createErr}`);
+            log(`   Error stack: ${createErr?.stack || 'No stack trace'}`);
             await AuditRepo.write({ level: 'error', connection_id: conn.id, sku: productKey, message: `Product creation failed: ${createErr?.message || createErr}` });
             throw createErr; // Re-throw to be caught by outer try-catch
           }
@@ -547,9 +565,10 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
         }
       } else if (missingVariants.length > 0) {
         // Log skipped variants
+        log(`⚠️  Skipping ${missingVariants.length} product(s) - create_products is disabled`);
         for (const item of missingVariants) {
           const msg = `Product not found and creation disabled`;
-          log(`${msg}: ${item.sku}`);
+          log(`   Skipped: ${item.sku} - ${item.title}`);
           await AuditRepo.write({ level: 'warn', connection_id: conn.id, sku: item.sku, message: msg });
         }
       }
@@ -631,8 +650,21 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
     } catch (e: any) {
       const emsg = `Error processing product group: ${e?.message || e}`;
       log(`${emsg} (${productKey})`);
+      totalErrors++;
       await AuditRepo.write({ level: 'error', connection_id: conn.id, sku: productKey, message: emsg });
     }
+  }
+  
+  // Summary log
+  log(`📊 Sync Summary for connection ${connId}:`);
+  log(`   Total products processed: ${productGroups.size}`);
+  log(`   Existing variants found: ${totalExisting}`);
+  log(`   Missing variants: ${totalMissing}`);
+  log(`   Products created: ${totalCreated}`);
+  log(`   Errors: ${totalErrors}`);
+  if (totalCreated === 0 && totalMissing > 0) {
+    log(`⚠️  WARNING: ${totalMissing} product(s) were missing but none were created!`);
+    log(`   Check: 1) create_products setting, 2) Stock > 0 filter, 3) API errors in logs above`);
   }
 }
 
