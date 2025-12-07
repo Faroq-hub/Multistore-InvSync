@@ -75,6 +75,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
   const [editFormData, setEditFormData] = useState({
     name: '',
     dest_location_id: '',
+    access_token: '',
     sync_price: true,
   });
   const [updating, setUpdating] = useState(false);
@@ -306,6 +307,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
       setEditFormData({
         name: fullConnection.name || '',
         dest_location_id: fullConnection.dest_location_id || '',
+        access_token: '', // Don't pre-fill for security - user enters new token if updating
         sync_price: rules.sync_price !== false, // Default to true if not set
       });
       setEditModalOpen(true);
@@ -330,16 +332,23 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
     
     try {
       setUpdating(true);
+      const updateBody: any = {
+        name: editFormData.name,
+        dest_location_id: editFormData.dest_location_id || null,
+        rules: {
+          sync_price: editFormData.sync_price !== false,
+        },
+      };
+      
+      // Include access_token if provided (for Shopify connections)
+      if (connectionToEdit.type === 'shopify' && editFormData.access_token.trim()) {
+        updateBody.access_token = editFormData.access_token.trim();
+      }
+      
       await makeRequest(`/api/connections/${connectionToEdit.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: editFormData.name,
-          dest_location_id: editFormData.dest_location_id || null,
-          rules: {
-            sync_price: editFormData.sync_price !== false,
-          },
-        }),
+        body: JSON.stringify(updateBody),
       });
       setToast({ content: 'Connection updated successfully' });
       setEditModalOpen(false);
@@ -804,7 +813,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
         onClose={() => {
           setEditModalOpen(false);
           setConnectionToEdit(null);
-          setEditFormData({ name: '', dest_location_id: '', sync_price: true });
+          setEditFormData({ name: '', dest_location_id: '', access_token: '', sync_price: true });
         }}
         title="Edit Connection"
         primaryAction={{
@@ -818,7 +827,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
             onAction: () => {
               setEditModalOpen(false);
               setConnectionToEdit(null);
-              setEditFormData({ name: '', dest_location_id: '', sync_price: true });
+              setEditFormData({ name: '', dest_location_id: '', access_token: '', sync_price: true });
             },
           },
         ]}
@@ -848,6 +857,15 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
                     Destination: {connectionToEdit.dest_shop_domain}
                   </Text>
                 )}
+                <TextField
+                  label="Access Token"
+                  value={editFormData.access_token}
+                  onChange={(value) => setEditFormData({ ...editFormData, access_token: value })}
+                  placeholder="shpat_xxx (leave empty to keep current token)"
+                  helpText="Update the Admin API access token if it's expired or invalid. Leave empty to keep the current token."
+                  type="password"
+                  autoComplete="off"
+                />
               </>
             )}
             {connectionToEdit?.type === 'woocommerce' && connectionToEdit?.base_url && (

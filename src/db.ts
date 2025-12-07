@@ -471,6 +471,14 @@ export const ConnectionRepo = {
       await result;
     }
   },
+  async updateAccessToken(id: string, access_token: string) {
+    const now = new Date().toISOString();
+    const stmt = getDb().prepare(`UPDATE connections SET access_token=@access_token, updated_at=@updated_at WHERE id=@id`);
+    const result = stmt.run({ id, access_token, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
+  },
   async updateSyncOptions(id: string, options: { sync_price?: number; sync_categories?: number; create_products?: number }) {
     const now = new Date().toISOString();
     const updates: string[] = ['updated_at=@updated_at'];

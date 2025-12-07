@@ -103,6 +103,16 @@ export async function PATCH(
       console.log(`[API] Updated rules for connection ${id}:`, updatedRules);
     }
 
+    // Update access_token if provided (for Shopify connections)
+    if (body.access_token !== undefined && typeof body.access_token === 'string' && body.access_token.trim()) {
+      if (connection.type === 'shopify') {
+        await ConnectionRepo.updateAccessToken(id, body.access_token.trim());
+        console.log(`[API] Updated access_token for connection ${id}`);
+      } else {
+        return NextResponse.json({ error: 'access_token can only be updated for Shopify connections' }, { status: 400 });
+      }
+    }
+
     const updated = await ConnectionRepo.get(id);
     return NextResponse.json({ 
       message: 'Connection updated successfully',
