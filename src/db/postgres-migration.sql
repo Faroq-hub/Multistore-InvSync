@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS connections (
   rules_json TEXT,
   sync_price INTEGER NOT NULL DEFAULT 0,
   sync_categories INTEGER NOT NULL DEFAULT 0,
+  sync_tags INTEGER NOT NULL DEFAULT 0,
+  sync_collections INTEGER NOT NULL DEFAULT 0,
   create_products INTEGER NOT NULL DEFAULT 1,
   product_status INTEGER NOT NULL DEFAULT 0,
   last_synced_at TEXT,
@@ -151,6 +153,20 @@ END $$;
 DO $$ 
 BEGIN
   ALTER TABLE connections ADD COLUMN sync_categories INTEGER NOT NULL DEFAULT 0;
+EXCEPTION
+  WHEN duplicate_column THEN NULL;
+END $$;
+
+DO $$ 
+BEGIN
+  ALTER TABLE connections ADD COLUMN sync_tags INTEGER NOT NULL DEFAULT 0;
+EXCEPTION
+  WHEN duplicate_column THEN NULL;
+END $$;
+
+DO $$ 
+BEGIN
+  ALTER TABLE connections ADD COLUMN sync_collections INTEGER NOT NULL DEFAULT 0;
 EXCEPTION
   WHEN duplicate_column THEN NULL;
 END $$;

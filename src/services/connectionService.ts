@@ -17,6 +17,8 @@ export interface CreateShopifyConnectionParams {
   dest_location_id?: string | null;
   sync_price: boolean;
   sync_categories: boolean;
+  sync_tags?: boolean;
+  sync_collections?: boolean;
   create_products: boolean;
   product_status: boolean;
   rules?: Record<string, unknown> | null;
@@ -30,6 +32,8 @@ export interface CreateWooCommerceConnectionParams {
   consumer_secret: string;
   sync_price: boolean;
   sync_categories: boolean;
+  sync_tags?: boolean;
+  sync_collections?: boolean;
   create_products: boolean;
   product_status: boolean;
   rules?: Record<string, unknown> | null;
@@ -41,6 +45,8 @@ export interface UpdateConnectionParams {
   access_token?: string;
   sync_price?: boolean;
   sync_categories?: boolean;
+  sync_tags?: boolean;
+  sync_collections?: boolean;
   create_products?: boolean;
   product_status?: boolean;
   rules?: Record<string, unknown>;
@@ -71,6 +77,8 @@ export async function createShopifyConnection(params: CreateShopifyConnectionPar
     rules_json: params.rules ? JSON.stringify(params.rules) : null,
     sync_price: params.sync_price ? 1 : 0,
     sync_categories: params.sync_categories ? 1 : 0,
+    sync_tags: params.sync_tags ? 1 : 0,
+    sync_collections: params.sync_collections ? 1 : 0,
     create_products: params.create_products ? 1 : 0,
     product_status: params.product_status ? 1 : 0,
     last_synced_at: null
@@ -108,6 +116,8 @@ export async function createWooCommerceConnection(params: CreateWooCommerceConne
     rules_json: params.rules ? JSON.stringify(params.rules) : null,
     sync_price: params.sync_price ? 1 : 0,
     sync_categories: params.sync_categories ? 1 : 0,
+    sync_tags: params.sync_tags ? 1 : 0,
+    sync_collections: params.sync_collections ? 1 : 0,
     create_products: params.create_products ? 1 : 0,
     product_status: params.product_status ? 1 : 0,
     last_synced_at: null
@@ -155,16 +165,23 @@ export async function updateConnection(
   
   // Update sync options if provided
   if (params.sync_price !== undefined || params.sync_categories !== undefined || 
+      params.sync_tags !== undefined || params.sync_collections !== undefined ||
       params.create_products !== undefined || params.product_status !== undefined) {
     const connection = await ConnectionRepo.get(connectionId);
     if (connection) {
       // Update sync options if any are provided
-      const options: { sync_price?: number; sync_categories?: number; create_products?: number; product_status?: number } = {};
+      const options: { sync_price?: number; sync_categories?: number; sync_tags?: number; sync_collections?: number; create_products?: number; product_status?: number } = {};
       if (params.sync_price !== undefined) {
         options.sync_price = params.sync_price ? 1 : 0;
       }
       if (params.sync_categories !== undefined) {
         options.sync_categories = params.sync_categories ? 1 : 0;
+      }
+      if (params.sync_tags !== undefined) {
+        options.sync_tags = params.sync_tags ? 1 : 0;
+      }
+      if (params.sync_collections !== undefined) {
+        options.sync_collections = params.sync_collections ? 1 : 0;
       }
       if (params.create_products !== undefined) {
         options.create_products = params.create_products ? 1 : 0;

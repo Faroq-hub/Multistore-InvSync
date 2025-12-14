@@ -106,6 +106,8 @@ export async function migrate() {
       rules_json TEXT,                       -- JSON blob for mapping/rules
       sync_price INTEGER NOT NULL DEFAULT 0, -- 1 = sync prices, 0 = don't sync prices
       sync_categories INTEGER NOT NULL DEFAULT 0, -- 1 = sync/create categories, 0 = don't
+      sync_tags INTEGER NOT NULL DEFAULT 0, -- 1 = sync tags, 0 = don't sync tags
+      sync_collections INTEGER NOT NULL DEFAULT 0, -- 1 = sync collections, 0 = don't sync collections
       create_products INTEGER NOT NULL DEFAULT 1, -- 1 = create products if not exist, 0 = skip
       product_status INTEGER NOT NULL DEFAULT 0, -- 1 = active, 0 = draft
       created_at TEXT NOT NULL,
@@ -204,6 +206,8 @@ async function runColumnMigrations() {
   const columnMigrations = [
     `ALTER TABLE connections ADD COLUMN sync_price INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE connections ADD COLUMN sync_categories INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE connections ADD COLUMN sync_tags INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE connections ADD COLUMN sync_collections INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE connections ADD COLUMN create_products INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE connections ADD COLUMN product_status INTEGER NOT NULL DEFAULT 0`,
   ];
@@ -293,6 +297,8 @@ export type ConnectionRow = {
   rules_json: string | null;
   sync_price: number; // 1 = true, 0 = false
   sync_categories: number; // 1 = true, 0 = false
+  sync_tags: number; // 1 = true, 0 = false
+  sync_collections: number; // 1 = true, 0 = false
   create_products: number; // 1 = true, 0 = false
   product_status: number; // 1 = active, 0 = draft
   last_synced_at?: string | null;
@@ -418,12 +424,14 @@ export const ConnectionRepo = {
   async insert(conn: Omit<ConnectionRow, 'created_at' | 'updated_at'>) {
     await ensureMigration(); // Ensure migration runs before insert
     const now = new Date().toISOString();
-    const stmt = getDb().prepare(`INSERT INTO connections (id, installation_id, type, name, status, dest_shop_domain, dest_location_id, base_url, consumer_key, consumer_secret, access_token, rules_json, sync_price, sync_categories, create_products, product_status, created_at, updated_at)
-      VALUES (@id, @installation_id, @type, @name, @status, @dest_shop_domain, @dest_location_id, @base_url, @consumer_key, @consumer_secret, @access_token, @rules_json, @sync_price, @sync_categories, @create_products, @product_status, @created_at, @updated_at)`);
+    const stmt = getDb().prepare(`INSERT INTO connections (id, installation_id, type, name, status, dest_shop_domain, dest_location_id, base_url, consumer_key, consumer_secret, access_token, rules_json, sync_price, sync_categories, sync_tags, sync_collections, create_products, product_status, created_at, updated_at)
+      VALUES (@id, @installation_id, @type, @name, @status, @dest_shop_domain, @dest_location_id, @base_url, @consumer_key, @consumer_secret, @access_token, @rules_json, @sync_price, @sync_categories, @sync_tags, @sync_collections, @create_products, @product_status, @created_at, @updated_at)`);
     const result = stmt.run({ 
       ...conn, 
       sync_price: conn.sync_price ?? 0,
       sync_categories: conn.sync_categories ?? 0,
+      sync_tags: conn.sync_tags ?? 0,
+      sync_collections: conn.sync_collections ?? 0,
       create_products: conn.create_products ?? 1,
       product_status: conn.product_status ?? 0,
       created_at: now, 
@@ -485,7 +493,7 @@ export const ConnectionRepo = {
       await result;
     }
   },
-  async updateSyncOptions(id: string, options: { sync_price?: number; sync_categories?: number; create_products?: number; product_status?: number }) {
+  async updateSyncOptions(id: string, options: { sync_price?: number; sync_categories?: number; sync_tags?: number; sync_collections?: number; create_products?: number; product_status?: number }) {
     const now = new Date().toISOString();
     const updates: string[] = ['updated_at=@updated_at'];
     const params: any = { id, updated_at: now };
@@ -497,6 +505,14 @@ export const ConnectionRepo = {
     if (options.sync_categories !== undefined) {
       updates.push('sync_categories=@sync_categories');
       params.sync_categories = options.sync_categories;
+    }
+    if (options.sync_tags !== undefined) {
+      updates.push('sync_tags=@sync_tags');
+      params.sync_tags = options.sync_tags;
+    }
+    if (options.sync_collections !== undefined) {
+      updates.push('sync_collections=@sync_collections');
+      params.sync_collections = options.sync_collections;
     }
     if (options.create_products !== undefined) {
       updates.push('create_products=@create_products');

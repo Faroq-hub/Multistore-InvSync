@@ -48,6 +48,12 @@ export async function GET(
       created_at: connection.created_at,
       updated_at: connection.updated_at,
       last_synced_at: connection.last_synced_at,
+      sync_price: connection.sync_price === 1,
+      sync_categories: connection.sync_categories === 1,
+      sync_tags: connection.sync_tags === 1,
+      sync_collections: connection.sync_collections === 1,
+      create_products: connection.create_products === 1,
+      product_status: connection.product_status === 1,
       rules,
     };
 

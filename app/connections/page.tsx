@@ -60,6 +60,8 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
     consumer_secret: '',
     sync_price: false,
     sync_categories: false,
+    sync_tags: false,
+    sync_collections: false,
     create_products: true,
     product_status: false, // false = draft, true = active
   });
@@ -79,6 +81,11 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
     dest_location_id: '',
     access_token: '',
     sync_price: true,
+    sync_categories: false,
+    sync_tags: false,
+    sync_collections: false,
+    create_products: true,
+    product_status: false,
   });
   const [updating, setUpdating] = useState(false);
   const makeRequest = useCallback(
@@ -217,6 +224,8 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
               dest_location_id: formData.dest_location_id || null,
               sync_price: formData.sync_price === true,
               sync_categories: formData.sync_categories === true,
+              sync_tags: formData.sync_tags === true,
+              sync_collections: formData.sync_collections === true,
               create_products: formData.create_products !== false,
               product_status: formData.product_status === true,
             }
@@ -227,6 +236,8 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
               consumer_secret: formData.consumer_secret,
               sync_price: formData.sync_price === true,
               sync_categories: formData.sync_categories === true,
+              sync_tags: formData.sync_tags === true,
+              sync_collections: formData.sync_collections === true,
               create_products: formData.create_products !== false,
               product_status: formData.product_status === true,
             };
@@ -249,6 +260,8 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
         consumer_secret: '',
         sync_price: false,
         sync_categories: false,
+        sync_tags: false,
+        sync_collections: false,
         create_products: true,
         product_status: false,
       });
@@ -357,11 +370,17 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
       const fullConnection = data.connection;
       setConnectionToEdit(fullConnection);
       const rules = fullConnection.rules || {};
+      // Get sync options from connection (they're stored as 1/0 in DB, but may be in rules for backward compatibility)
       setEditFormData({
         name: fullConnection.name || '',
         dest_location_id: fullConnection.dest_location_id || '',
         access_token: '', // Don't pre-fill for security - user enters new token if updating
-        sync_price: rules.sync_price !== false, // Default to true if not set
+        sync_price: fullConnection.sync_price !== false && fullConnection.sync_price !== 0,
+        sync_categories: fullConnection.sync_categories === true || fullConnection.sync_categories === 1,
+        sync_tags: fullConnection.sync_tags === true || fullConnection.sync_tags === 1,
+        sync_collections: fullConnection.sync_collections === true || fullConnection.sync_collections === 1,
+        create_products: fullConnection.create_products !== false && fullConnection.create_products !== 0,
+        product_status: fullConnection.product_status === true || fullConnection.product_status === 1,
       });
       setEditModalOpen(true);
     } catch (err) {
@@ -406,7 +425,17 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
       setToast({ content: 'Connection updated successfully' });
       setEditModalOpen(false);
       setConnectionToEdit(null);
-      setEditFormData({ name: '', dest_location_id: '', access_token: '', sync_price: true });
+      setEditFormData({ 
+        name: '', 
+        dest_location_id: '', 
+        access_token: '', 
+        sync_price: true,
+        sync_categories: false,
+        sync_tags: false,
+        sync_collections: false,
+        create_products: true,
+        product_status: false,
+      });
       fetchConnections();
     } catch (err) {
       setToast({ content: err instanceof Error ? err.message : 'Failed to update connection', error: true });
@@ -904,7 +933,17 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
         onClose={() => {
           setEditModalOpen(false);
           setConnectionToEdit(null);
-          setEditFormData({ name: '', dest_location_id: '', access_token: '', sync_price: true });
+          setEditFormData({ 
+        name: '', 
+        dest_location_id: '', 
+        access_token: '', 
+        sync_price: true,
+        sync_categories: false,
+        sync_tags: false,
+        sync_collections: false,
+        create_products: true,
+        product_status: false,
+      });
         }}
         title="Edit Connection"
         primaryAction={{
@@ -918,7 +957,17 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
             onAction: () => {
               setEditModalOpen(false);
               setConnectionToEdit(null);
-              setEditFormData({ name: '', dest_location_id: '', access_token: '', sync_price: true });
+              setEditFormData({ 
+                name: '', 
+                dest_location_id: '', 
+                access_token: '', 
+                sync_price: true,
+                sync_categories: false,
+                sync_tags: false,
+                sync_collections: false,
+                create_products: true,
+                product_status: false,
+              });
             },
           },
         ]}
@@ -966,9 +1015,39 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
             )}
             <Checkbox
               label="Sync prices"
-              checked={editFormData.sync_price !== false}
+              checked={editFormData.sync_price}
               onChange={(value) => setEditFormData({ ...editFormData, sync_price: value })}
               helpText="Enable this to sync product prices to the destination store. When disabled, only inventory levels will be synced."
+            />
+            <Checkbox
+              label="Sync categories"
+              checked={editFormData.sync_categories}
+              onChange={(value) => setEditFormData({ ...editFormData, sync_categories: value })}
+              helpText="Enable this to sync product categories to the destination store. Categories will be created if they don't exist."
+            />
+            <Checkbox
+              label="Sync tags"
+              checked={editFormData.sync_tags}
+              onChange={(value) => setEditFormData({ ...editFormData, sync_tags: value })}
+              helpText="Enable this to sync product tags to the destination store."
+            />
+            <Checkbox
+              label="Sync collections"
+              checked={editFormData.sync_collections}
+              onChange={(value) => setEditFormData({ ...editFormData, sync_collections: value })}
+              helpText="Enable this to sync product collections to the destination store. Collections will be created if they don't exist."
+            />
+            <Checkbox
+              label="Create new products if not available in destination store"
+              checked={editFormData.create_products}
+              onChange={(value) => setEditFormData({ ...editFormData, create_products: value })}
+              helpText="When enabled, products that don't exist in the destination store will be created automatically. When disabled, only existing products will be updated."
+            />
+            <Checkbox
+              label="Publish products immediately (active status)"
+              checked={editFormData.product_status}
+              onChange={(value) => setEditFormData({ ...editFormData, product_status: value })}
+              helpText="When enabled, newly created products will be published (active) immediately. When disabled, products will be created as drafts."
             />
           </BlockStack>
         </Modal.Section>

@@ -104,6 +104,8 @@ export async function migratePostgres(): Promise<void> {
         rules_json TEXT,
         sync_price INTEGER NOT NULL DEFAULT 0,
         sync_categories INTEGER NOT NULL DEFAULT 0,
+        sync_tags INTEGER NOT NULL DEFAULT 0,
+        sync_collections INTEGER NOT NULL DEFAULT 0,
         create_products INTEGER NOT NULL DEFAULT 1,
         product_status INTEGER NOT NULL DEFAULT 0,
         last_synced_at TEXT,
