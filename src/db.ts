@@ -700,10 +700,16 @@ export const AuditRepo = {
     return (result instanceof Promise ? await result : result);
   },
   async countSyncedSkus(connection_id: string): Promise<number> {
+    await ensureMigration();
+    // Count distinct SKUs that have been successfully synced (info level = success, error/warn = failures)
+    // We count all SKUs that have at least one info-level log entry (successful sync)
     const stmt = getDb().prepare(
       `SELECT COUNT(DISTINCT sku) as count 
        FROM audit_logs 
-       WHERE connection_id=@connection_id AND sku IS NOT NULL`
+       WHERE connection_id=@connection_id 
+         AND sku IS NOT NULL 
+         AND sku != ''
+         AND level = 'info'`
     );
     const result = stmt.get({ connection_id });
     const row = (result instanceof Promise ? await result : result) as { count?: number } | undefined;
