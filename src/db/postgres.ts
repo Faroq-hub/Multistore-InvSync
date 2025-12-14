@@ -66,6 +66,7 @@ export async function migratePostgres(): Promise<void> {
       `ALTER TABLE connections ADD COLUMN IF NOT EXISTS sync_price INTEGER NOT NULL DEFAULT 0`,
       `ALTER TABLE connections ADD COLUMN IF NOT EXISTS sync_categories INTEGER NOT NULL DEFAULT 0`,
       `ALTER TABLE connections ADD COLUMN IF NOT EXISTS create_products INTEGER NOT NULL DEFAULT 1`,
+      `ALTER TABLE connections ADD COLUMN IF NOT EXISTS product_status INTEGER NOT NULL DEFAULT 0`,
     ];
 
     for (const stmt of addColumnStatements) {
@@ -104,6 +105,7 @@ export async function migratePostgres(): Promise<void> {
         sync_price INTEGER NOT NULL DEFAULT 0,
         sync_categories INTEGER NOT NULL DEFAULT 0,
         create_products INTEGER NOT NULL DEFAULT 1,
+        product_status INTEGER NOT NULL DEFAULT 0,
         last_synced_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
