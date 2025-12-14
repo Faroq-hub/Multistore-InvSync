@@ -1,4 +1,6 @@
 import { ConnectionRepo, JobRepo, JobItemRepo, AuditRepo, ConnectionRow } from '../db';
+import { getShopifyRateLimiter } from '../utils/rateLimiter';
+import { retryWithBackoff, categorizeError, ErrorType, fetchWithRetry } from '../utils/retry';
 
 // Generic fetch function type compatible with both native fetch and node-fetch
 type FetchFn = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{ ok: boolean; status: number; json: () => Promise<any>; text: () => Promise<string>; headers: { get: (name: string) => string | null } }>;
@@ -53,6 +55,50 @@ function applyRules(item: CatalogItem, rulesJson: string | null): CatalogItem {
   }
 }
 
+/**
+ * Wrapper for Shopify API calls with rate limiting and retry logic
+ */
+async function shopifyApiCall<T>(
+  domain: string,
+  isInventory: boolean,
+  fn: () => Promise<T>,
+  log?: (m: string) => void
+): Promise<T> {
+  const rateLimiter = getShopifyRateLimiter();
+  
+  return retryWithBackoff(async () => {
+    try {
+      if (isInventory) {
+        return await rateLimiter.executeInventory(domain, fn);
+      } else {
+        return await rateLimiter.executeRest(domain, fn);
+      }
+    } catch (error: any) {
+      const status = error.status || error.response?.status;
+      const errorType = categorizeError(status, error);
+      
+      if (errorType === ErrorType.PERMANENT) {
+        // Don't retry permanent errors
+        throw error;
+      }
+      
+      // Log retry attempts
+      if (status === 429) {
+        log?.(`⚠️  Rate limited (429), retrying with backoff...`);
+      } else if (status && status >= 500) {
+        log?.(`⚠️  Server error (${status}), retrying...`);
+      }
+      
+      throw error;
+    }
+  }, {
+    maxRetries: 3,
+    baseDelay: 1000,
+    maxDelay: 30000,
+    backoffMultiplier: 2
+  });
+}
+
 // Helper to find product in destination by SKU only (strict matching)
 async function findProductInDestination(
   fetch: FetchFn,
@@ -64,26 +110,78 @@ async function findProductInDestination(
 ): Promise<{ variant: any; product: any } | null> {
   // Only search by SKU - strict matching to avoid wrong product updates
   const skuUrl = `https://${domain}/admin/api/${apiVersion}/variants.json?sku=${encodeURIComponent(item.sku)}`;
-  const skuRes = await fetch(skuUrl, { headers });
-  if (skuRes.ok) {
-    const skuData: any = await skuRes.json();
-    if (skuData.variants && skuData.variants.length > 0) {
-      const v = skuData.variants[0];
-      // Verify the SKU matches exactly (Shopify search can be fuzzy)
-      if (v.sku === item.sku) {
-        log?.(`Found matching SKU in destination: ${item.sku}`);
-        // Fetch the full product
-        const prodUrl = `https://${domain}/admin/api/${apiVersion}/products/${v.product_id}.json`;
-        const prodRes = await fetch(prodUrl, { headers });
-        if (prodRes.ok) {
-          const prodData: any = await prodRes.json();
-          return { variant: v, product: prodData.product };
+  
+  try {
+    const skuRes = await shopifyApiCall(
+      domain,
+      false, // Variants API is REST, not inventory
+      async () => {
+        const response = await fetch(skuUrl, { headers });
+        if (!response.ok && response.status !== 404) {
+          const error: any = new Error(`HTTP ${response.status}`);
+          error.status = response.status;
+          error.response = response;
+          throw error;
         }
-        return { variant: v, product: null };
-      } else {
-        log?.(`SKU search returned non-exact match: searched "${item.sku}", found "${v.sku}" - skipping`);
+        return response;
+      },
+      log
+    );
+
+    if (skuRes.ok) {
+      const skuData: any = await skuRes.json();
+      if (skuData.variants && skuData.variants.length > 0) {
+        const v = skuData.variants[0];
+        // Verify the SKU matches exactly (Shopify search can be fuzzy)
+        if (v.sku === item.sku) {
+          log?.(`Found matching SKU in destination: ${item.sku}`);
+          // Fetch the full product
+          const prodUrl = `https://${domain}/admin/api/${apiVersion}/products/${v.product_id}.json`;
+          const prodRes = await shopifyApiCall(
+            domain,
+            false,
+            async () => {
+              const response = await fetch(prodUrl, { headers });
+              if (!response.ok) {
+                const error: any = new Error(`HTTP ${response.status}`);
+                error.status = response.status;
+                error.response = response;
+                throw error;
+              }
+              return response;
+            },
+            log
+          );
+          
+          if (prodRes.ok) {
+            const prodData: any = await prodRes.json();
+            return { variant: v, product: prodData.product };
+          }
+          return { variant: v, product: null };
+        } else {
+          log?.(`SKU search returned non-exact match: searched "${item.sku}", found "${v.sku}" - skipping`);
+        }
       }
     }
+  } catch (error: any) {
+    const status = error.status || error.response?.status;
+    const errorType = categorizeError(status, error);
+    
+    // 404 is expected when product doesn't exist - not an error
+    if (status === 404) {
+      log?.(`No exact SKU match found in destination for: ${item.sku}`);
+      return null;
+    }
+    
+    // Permanent errors - don't retry
+    if (errorType === ErrorType.PERMANENT) {
+      log?.(`❌ Permanent error finding product: ${error.message || error}`);
+      return null;
+    }
+    
+    // Transient errors are already retried by shopifyApiCall
+    log?.(`⚠️  Error finding product (will retry): ${error.message || error}`);
+    throw error; // Re-throw to trigger retry
   }
 
   // SKU not found - log this for debugging
@@ -103,7 +201,22 @@ async function findProductByTitle(
   try {
     // Search for products by title (Shopify API supports title search)
     const searchUrl = `https://${domain}/admin/api/${apiVersion}/products.json?title=${encodeURIComponent(title)}&limit=10`;
-    const searchRes = await fetch(searchUrl, { headers });
+    
+    const searchRes = await shopifyApiCall(
+      domain,
+      false, // Product search is REST API
+      async () => {
+        const response = await fetch(searchUrl, { headers });
+        if (!response.ok && response.status !== 404) {
+          const error: any = new Error(`HTTP ${response.status}`);
+          error.status = response.status;
+          error.response = response;
+          throw error;
+        }
+        return response;
+      },
+      log
+    );
     
     if (searchRes.ok) {
       const searchData: any = await searchRes.json();
@@ -123,7 +236,23 @@ async function findProductByTitle(
       }
     }
   } catch (e: any) {
-    log?.(`Error searching for product by title: ${e?.message || e}`);
+    const status = e.status || e.response?.status;
+    const errorType = categorizeError(status, e);
+    
+    // 404 is expected when product doesn't exist - not an error
+    if (status === 404) {
+      return null;
+    }
+    
+    // Permanent errors - don't retry, just log
+    if (errorType === ErrorType.PERMANENT) {
+      log?.(`❌ Permanent error searching for product by title: ${e?.message || e}`);
+      return null;
+    }
+    
+    // Transient errors are already retried by shopifyApiCall
+    log?.(`⚠️  Error searching for product by title (will retry): ${e?.message || e}`);
+    throw e; // Re-throw to trigger retry
   }
   
   return null;
@@ -277,16 +406,35 @@ async function addProductToCollection(
 ): Promise<boolean> {
   try {
     const url = `https://${domain}/admin/api/${apiVersion}/collects.json`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        collect: {
-          product_id: Number(productId),
-          collection_id: Number(collectionId)
+    
+    // Use rate limiter for collection operations
+    const res = await shopifyApiCall(
+      domain,
+      false, // Collection operations are REST API
+      async () => {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            collect: {
+              product_id: Number(productId),
+              collection_id: Number(collectionId)
+            }
+          })
+        });
+        
+        if (!response.ok && response.status !== 422) {
+          // 422 might be "already exists" which is OK
+          const error: any = new Error(`HTTP ${response.status}`);
+          error.status = response.status;
+          error.response = response;
+          throw error;
         }
-      })
-    });
+        
+        return response;
+      },
+      log
+    );
 
     if (res.ok) {
       return true;
@@ -460,21 +608,44 @@ async function addVariantToProduct(
   };
 
   const addUrl = `https://${domain}/admin/api/${apiVersion}/products/${productId}/variants.json`;
-  const addRes = await fetch(addUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(variantPayload)
-  });
+  
+  // Use rate limiter for variant addition
+  try {
+    const addRes = await shopifyApiCall(
+      domain,
+      false, // Variant addition is REST API
+      async () => {
+        const response = await fetch(addUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(variantPayload)
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          const error: any = new Error(`Failed to add variant: ${response.status} - ${errorText}`);
+          error.status = response.status;
+          error.response = response;
+          throw error;
+        }
+        
+        return response;
+      },
+      log
+    );
 
-  if (!addRes.ok) {
-    const errorText = await addRes.text();
-    log(`Failed to add variant ${item.sku}: ${addRes.status} - ${errorText}`);
-    return null;
+    const addData: any = await addRes.json();
+    log(`Added variant ${item.sku} to existing product`);
+    return addData.variant;
+  } catch (error: any) {
+    const errorType = categorizeError(error.status || error.response?.status, error);
+    if (errorType === ErrorType.PERMANENT) {
+      log(`❌ Failed to add variant ${item.sku}: ${error.message || error}`);
+      return null;
+    }
+    // Transient errors are already retried by shopifyApiCall
+    throw error;
   }
-
-  const addData: any = await addRes.json();
-  log(`Added variant ${item.sku} to existing product`);
-  return addData.variant;
 }
 
 async function pushToShopify(connId: string, log: (m: string) => void, filterSkus?: Set<string>) {
@@ -659,41 +830,101 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
         try {
           // Update price only if sync_price is enabled
           if (shouldSyncPrice) {
-            const currentPrice = String(v.price ?? '');
-            const desiredPrice = String(item.price ?? '');
-            if (desiredPrice && desiredPrice !== currentPrice) {
-              const upUrl = `https://${conn.dest_shop_domain}/admin/api/${apiVersion}/variants/${v.id}.json`;
-              const priceRes = await fetch(upUrl, { 
+      const currentPrice = String(v.price ?? '');
+      const desiredPrice = String(item.price ?? '');
+      if (desiredPrice && desiredPrice !== currentPrice) {
+        const upUrl = `https://${conn.dest_shop_domain}/admin/api/${apiVersion}/variants/${v.id}.json`;
+        
+        // Use rate limiter for variant price updates
+        try {
+          const priceRes = await shopifyApiCall(
+            conn.dest_shop_domain,
+            false, // Variant updates are REST API
+            async () => {
+              const response = await fetch(upUrl, { 
                 method: 'PUT', 
                 headers, 
                 body: JSON.stringify({ variant: { id: v.id, price: desiredPrice } }) 
               });
-              if (priceRes.ok) {
-                const msg = `Price updated ${currentPrice} -> ${desiredPrice}`;
-                log(`${msg} (${item.sku})`);
-                await AuditRepo.write({ level: 'info', connection_id: conn.id, sku: item.sku, message: msg });
+              
+              if (!response.ok) {
+                const error: any = new Error(`Failed to update price: ${response.status}`);
+                error.status = response.status;
+                error.response = response;
+                throw error;
               }
-            }
+              
+              return response;
+            },
+            log
+          );
+          
+          if (priceRes.ok) {
+        const msg = `Price updated ${currentPrice} -> ${desiredPrice}`;
+        log(`${msg} (${item.sku})`);
+            await AuditRepo.write({ level: 'info', connection_id: conn.id, sku: item.sku, message: msg });
           }
+        } catch (priceError: any) {
+          const errorType = categorizeError(priceError.status || priceError.response?.status, priceError);
+          if (errorType === ErrorType.PERMANENT) {
+            log(`❌ Failed to update price for ${item.sku}: ${priceError.message || priceError}`);
+            await AuditRepo.write({ level: 'error', connection_id: conn.id, sku: item.sku, message: `Failed to update price: ${priceError.message || priceError}` });
+          } else {
+            // Transient error - will be retried by shopifyApiCall
+            throw priceError;
+          }
+        }
+            }
+      }
 
           // Always update inventory if location provided
-          if (conn.dest_location_id && v.inventory_item_id != null && item.stock != null) {
-            const invUrl = `https://${conn.dest_shop_domain}/admin/api/${apiVersion}/inventory_levels/set.json`;
-            const invRes = await fetch(invUrl, {
-              method: 'POST',
-              headers,
-              body: JSON.stringify({
-                location_id: Number(conn.dest_location_id),
-                inventory_item_id: Number(v.inventory_item_id),
-                available: Number(item.stock)
-              })
-            });
-            if (invRes.ok) {
-              const msg = `Stock set -> ${item.stock}`;
-              log(`${msg} (${item.sku})`);
-              await AuditRepo.write({ level: 'info', connection_id: conn.id, sku: item.sku, message: msg });
-            }
+      if (conn.dest_location_id && v.inventory_item_id != null && item.stock != null) {
+        const invUrl = `https://${conn.dest_shop_domain}/admin/api/${apiVersion}/inventory_levels/set.json`;
+        
+        // Use rate limiter for inventory API (2 req/sec limit)
+        try {
+          const invRes = await shopifyApiCall(
+            conn.dest_shop_domain,
+            true, // Inventory API has stricter rate limits (2 req/sec)
+            async () => {
+              const response = await fetch(invUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            location_id: Number(conn.dest_location_id),
+            inventory_item_id: Number(v.inventory_item_id),
+            available: Number(item.stock)
+          })
+        });
+              
+              if (!response.ok) {
+                const error: any = new Error(`Failed to update inventory: ${response.status}`);
+                error.status = response.status;
+                error.response = response;
+                throw error;
+              }
+              
+              return response;
+            },
+            log
+          );
+          
+          if (invRes.ok) {
+        const msg = `Stock set -> ${item.stock}`;
+        log(`${msg} (${item.sku})`);
+            await AuditRepo.write({ level: 'info', connection_id: conn.id, sku: item.sku, message: msg });
           }
+        } catch (invError: any) {
+          const errorType = categorizeError(invError.status || invError.response?.status, invError);
+          if (errorType === ErrorType.PERMANENT) {
+            log(`❌ Failed to update inventory for ${item.sku}: ${invError.message || invError}`);
+            await AuditRepo.write({ level: 'error', connection_id: conn.id, sku: item.sku, message: `Failed to update inventory: ${invError.message || invError}` });
+          } else {
+            // Transient error - will be retried by shopifyApiCall
+            throw invError;
+          }
+        }
+      }
           await sleep(200);
         } catch (e: any) {
           const emsg = `Error updating variant: ${e?.message || e}`;
@@ -904,7 +1135,7 @@ async function pushToWoo(connId: string, log: (m: string) => void, filterSkus?: 
           const msg = `Product not found and creation disabled`;
           log(`${msg}: ${item.sku}`);
           await AuditRepo.write({ level: 'warn', connection_id: conn.id, sku: item.sku, message: msg });
-          continue;
+        continue;
         }
       }
 
@@ -925,16 +1156,16 @@ async function pushToWoo(connId: string, log: (m: string) => void, filterSkus?: 
 
       // Only send update if there's something to update
       if (Object.keys(updateBody).length > 0) {
-        const upUrl = `${base}/wp-json/wc/v3/products/${found.id}?${auth.toString()}`;
+      const upUrl = `${base}/wp-json/wc/v3/products/${found.id}?${auth.toString()}`;
         const ures = await fetch(upUrl, { 
           method: 'PUT', 
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify(updateBody) 
         });
-        if (!ures.ok) {
-          const t = await ures.text();
-          throw new Error(`Woo update failed ${ures.status}: ${t}`);
-        }
+      if (!ures.ok) {
+        const t = await ures.text();
+        throw new Error(`Woo update failed ${ures.status}: ${t}`);
+      }
         const msg = shouldSyncPrice ? `Stock: ${item.stock}, Price: ${item.price}` : `Stock: ${item.stock}`;
         log(`Woo updated (${msg}) - ${item.sku}`);
         await AuditRepo.write({ level: 'info', connection_id: conn.id, sku: item.sku, message: `Updated: ${msg}` });
