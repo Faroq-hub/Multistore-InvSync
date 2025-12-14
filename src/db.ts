@@ -639,6 +639,12 @@ export const JobRepo = {
     const result = stmt.all({ limit });
     return (result instanceof Promise ? await result : result) as JobRow[];
   },
+  async listByConnection(connection_id: string, limit = 10): Promise<JobRow[]> {
+    await ensureMigration();
+    const stmt = getDb().prepare(`SELECT * FROM jobs WHERE connection_id=@connection_id ORDER BY created_at DESC LIMIT @limit`);
+    const result = stmt.all({ connection_id, limit });
+    return (result instanceof Promise ? await result : result) as JobRow[];
+  },
   async cancelQueuedJobs(connection_id: string): Promise<number> {
     const now = new Date().toISOString();
     const stmt = getDb().prepare(`UPDATE jobs SET state='dead', last_error='Connection paused - job cancelled', updated_at=@updated_at WHERE connection_id=@connection_id AND state='queued'`);
@@ -679,6 +685,24 @@ export const JobItemRepo = {
     const result = stmt.all({ job_id });
     const rows = (result instanceof Promise ? await result : result) as { sku: string }[];
     return rows.map(r => r.sku);
+  },
+  async getProgress(job_id: string): Promise<{ total: number; completed: number; failed: number }> {
+    await ensureMigration();
+    const stmt = getDb().prepare(`
+      SELECT 
+        COUNT(*) as total,
+        SUM(CASE WHEN state = 'succeeded' THEN 1 ELSE 0 END) as completed,
+        SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END) as failed
+      FROM job_items 
+      WHERE job_id=@job_id
+    `);
+    const result = stmt.get({ job_id });
+    const row = (result instanceof Promise ? await result : result) as { total?: number; completed?: number; failed?: number } | undefined;
+    return {
+      total: row?.total ?? 0,
+      completed: row?.completed ?? 0,
+      failed: row?.failed ?? 0
+    };
   }
 };
 
@@ -714,5 +738,40 @@ export const AuditRepo = {
     const result = stmt.get({ connection_id });
     const row = (result instanceof Promise ? await result : result) as { count?: number } | undefined;
     return row?.count ?? 0;
+  },
+  async getErrorSummary(connection_id: string, hours: number = 24): Promise<{ total: number; byLevel: { error: number; warn: number } }> {
+    await ensureMigration();
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+    const stmt = getDb().prepare(`
+      SELECT 
+        COUNT(*) as total,
+        SUM(CASE WHEN level = 'error' THEN 1 ELSE 0 END) as error,
+        SUM(CASE WHEN level = 'warn' THEN 1 ELSE 0 END) as warn
+      FROM audit_logs 
+      WHERE connection_id=@connection_id 
+        AND ts >= @since
+        AND (level = 'error' OR level = 'warn')
+    `);
+    const result = stmt.get({ connection_id, since });
+    const row = (result instanceof Promise ? await result : result) as { total?: number; error?: number; warn?: number } | undefined;
+    return {
+      total: row?.total ?? 0,
+      byLevel: {
+        error: row?.error ?? 0,
+        warn: row?.warn ?? 0
+      }
+    };
+  },
+  async exportLogs(connection_id: string, limit = 10000): Promise<Array<{ ts: string; level: string; sku: string | null; message: string }>> {
+    await ensureMigration();
+    const stmt = getDb().prepare(`
+      SELECT ts, level, sku, message 
+      FROM audit_logs 
+      WHERE connection_id=@connection_id 
+      ORDER BY ts DESC 
+      LIMIT @limit
+    `);
+    const result = stmt.all({ connection_id, limit });
+    return (result instanceof Promise ? await result : result) as Array<{ ts: string; level: string; sku: string | null; message: string }>;
   }
 };

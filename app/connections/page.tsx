@@ -66,6 +66,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ content: string; error?: boolean } | null>(null);
   const [statusTab, setStatusTab] = useState<StatusFilter>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [connectionToDelete, setConnectionToDelete] = useState<Connection | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -420,9 +421,17 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
   }, [connections]);
 
   const filteredConnections = useMemo(() => {
-    if (statusTab === 'all') return connections;
-    return connections.filter((connection) => connection.status === statusTab);
-  }, [connections, statusTab]);
+    let filtered = statusTab === 'all' ? connections : connections.filter((connection) => connection.status === statusTab);
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter((connection) => 
+        connection.name.toLowerCase().includes(query) ||
+        (connection.dest_shop_domain && connection.dest_shop_domain.toLowerCase().includes(query)) ||
+        (connection.base_url && connection.base_url.toLowerCase().includes(query))
+      );
+    }
+    return filtered;
+  }, [connections, statusTab, searchQuery]);
 
   const rows = filteredConnections.map((conn) => [
     conn.name,
@@ -613,6 +622,22 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
               </EmptyState>
             ) : (
               <BlockStack gap="300">
+                <InlineStack gap="200" align="space-between" blockAlign="center">
+                  <div style={{ flex: 1, maxWidth: '400px' }}>
+                    <TextField
+                      label="Search connections"
+                      labelHidden
+                      value={searchQuery}
+                      onChange={setSearchQuery}
+                      placeholder="Search by name, domain, or URL..."
+                      clearButton
+                      onClearButtonClick={() => setSearchQuery('')}
+                    />
+                  </div>
+                  <Text as="span" tone="subdued">
+                    {filteredConnections.length} of {connections.length} connection{connections.length !== 1 ? 's' : ''}
+                  </Text>
+                </InlineStack>
                 <Tabs
                   tabs={tabs}
                   selected={tabs.findIndex((tab) => tab.id === statusTab)}
