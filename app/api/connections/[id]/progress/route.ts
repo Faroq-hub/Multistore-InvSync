@@ -33,6 +33,7 @@ export async function GET(
 
     // Get progress for the running job
     const progress = await JobItemRepo.getProgress(runningJob.id);
+    const remaining = progress.total - progress.completed - progress.failed;
     const percentage = progress.total > 0 
       ? Math.round((progress.completed / progress.total) * 100) 
       : 0;
@@ -53,13 +54,13 @@ export async function GET(
         total: progress.total,
         completed: progress.completed,
         failed: progress.failed,
-        remaining: progress.total - progress.completed - progress.failed,
+        remaining,
         percentage
       },
       speed: {
         items_per_minute: speed,
-        estimated_minutes_remaining: speed > 0 && progress.remaining > 0
-          ? Math.round((progress.remaining / speed) * 10) / 10
+        estimated_minutes_remaining: speed > 0 && remaining > 0
+          ? Math.round((remaining / speed) * 10) / 10
           : null
       },
       started_at: runningJob.created_at

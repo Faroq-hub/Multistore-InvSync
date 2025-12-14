@@ -630,6 +630,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
                       value={searchQuery}
                       onChange={setSearchQuery}
                       placeholder="Search by name, domain, or URL..."
+                      autoComplete="off"
                       clearButton
                       onClearButtonClick={() => setSearchQuery('')}
                     />
