@@ -27,7 +27,6 @@ import {
   Checkbox,
   ProgressBar,
   Spinner,
-  InlineError,
   Divider,
 } from '@shopify/polaris';
 
@@ -92,6 +91,19 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
     product_status: false,
   });
   const [updating, setUpdating] = useState(false);
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
+  const [syncProgress, setSyncProgress] = useState<{
+    isRunning: boolean;
+    progress?: { total: number; completed: number; failed: number; remaining: number; percentage: number };
+    speed?: { items_per_minute: number; estimated_minutes_remaining: number | null };
+    started_at?: string;
+  } | null>(null);
+  const [syncHistory, setSyncHistory] = useState<any[]>([]);
+  const [errorSummary, setErrorSummary] = useState<{
+    health: 'healthy' | 'warning' | 'critical';
+    errors: any;
+  } | null>(null);
+  const [dashboardModalOpen, setDashboardModalOpen] = useState(false);
   const makeRequest = useCallback(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       let token: string;
@@ -1116,7 +1128,6 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
           setErrorSummary(null);
         }}
         title="Sync Status Dashboard"
-        large
       >
         {selectedConnectionId && (
           <BlockStack gap="400">
@@ -1178,14 +1189,14 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
                       <Text as="span">
                         <strong>Total:</strong> {errorSummary.errors.total || 0}
                       </Text>
-                      <Text as="span" tone="critical">
-                        <strong>Errors:</strong> {errorSummary.errors.byLevel?.error || 0}
+                      <Text as="span">
+                        <strong>Errors:</strong> <span style={{ color: 'var(--p-color-text-critical)' }}>{errorSummary.errors.byLevel?.error || 0}</span>
                       </Text>
-                      <Text as="span" tone="warning">
-                        <strong>Warnings:</strong> {errorSummary.errors.byLevel?.warn || 0}
+                      <Text as="span">
+                        <strong>Warnings:</strong> <span style={{ color: 'var(--p-color-text-warning)' }}>{errorSummary.errors.byLevel?.warn || 0}</span>
                       </Text>
-                      <Text as="span" tone="success">
-                        <strong>Info:</strong> {errorSummary.errors.byLevel?.info || 0}
+                      <Text as="span">
+                        <strong>Info:</strong> <span style={{ color: 'var(--p-color-text-success)' }}>{errorSummary.errors.byLevel?.info || 0}</span>
                       </Text>
                     </InlineStack>
                   </BlockStack>
@@ -1201,15 +1212,18 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
                 <Text as="h2" variant="headingMd">Recent Sync History</Text>
                 {syncHistory.length > 0 ? (
                   <BlockStack gap="200">
-                    {syncHistory.map((job: any) => (
+                    {syncHistory.map((job: any) => {
+                      const getBadgeTone = (state: string): 'success' | 'critical' | 'warning' | undefined => {
+                        if (state === 'succeeded') return 'success';
+                        if (state === 'failed' || state === 'dead') return 'critical';
+                        if (state === 'running') return 'warning';
+                        return undefined;
+                      };
+                      return (
                       <BlockStack key={job.id} gap="100">
                         <InlineStack gap="200" align="space-between" blockAlign="center">
                           <InlineStack gap="200">
-                            <Badge tone={
-                              job.state === 'succeeded' ? 'success' :
-                              job.state === 'failed' || job.state === 'dead' ? 'critical' :
-                              job.state === 'running' ? 'info' : 'subdued'
-                            }>
+                            <Badge tone={getBadgeTone(job.state)}>
                               {job.state}
                             </Badge>
                             <Text as="span" variant="bodySm">{job.job_type}</Text>
@@ -1219,14 +1233,17 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
                           </Text>
                         </InlineStack>
                         {job.last_error && (
-                          <InlineError message={job.last_error} />
+                          <Banner tone="critical" title="Error">
+                            {job.last_error}
+                          </Banner>
                         )}
-                        <Text as="span" tone="subdued" variant="bodySm">
+                        <Text as="span" variant="bodySm">
                           {new Date(job.created_at).toLocaleString()}
                         </Text>
                         <Divider />
                       </BlockStack>
-                    ))}
+                      );
+                    })}
                   </BlockStack>
                 ) : (
                   <Text as="p" tone="subdued">No sync history available</Text>
