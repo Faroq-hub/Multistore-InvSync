@@ -638,6 +638,16 @@ export const JobRepo = {
     const stmt = getDb().prepare(`SELECT * FROM jobs ORDER BY created_at DESC LIMIT @limit`);
     const result = stmt.all({ limit });
     return (result instanceof Promise ? await result : result) as JobRow[];
+  },
+  async cancelQueuedJobs(connection_id: string): Promise<number> {
+    const now = new Date().toISOString();
+    const stmt = getDb().prepare(`UPDATE jobs SET state='dead', last_error='Connection paused - job cancelled', updated_at=@updated_at WHERE connection_id=@connection_id AND state='queued'`);
+    const result = stmt.run({ connection_id, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
+    const changes = result instanceof Promise ? (await result).changes : result.changes;
+    return changes;
   }
 };
 

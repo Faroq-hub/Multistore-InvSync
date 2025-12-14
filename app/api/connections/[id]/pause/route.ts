@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ConnectionRepo, InstallationRepo } from '../../../../../src/db';
+import { ConnectionRepo, InstallationRepo, JobRepo } from '../../../../../src/db';
 import { requireShopFromSession } from '../../../_utils/authorize';
 
 export async function POST(
@@ -19,8 +19,17 @@ export async function POST(
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 });
     }
 
+    // Cancel any queued jobs for this connection
+    const cancelledCount = await JobRepo.cancelQueuedJobs(connection.id);
+    console.log(`[API] Pausing connection ${id} - cancelled ${cancelledCount} queued job(s)`);
+
     await ConnectionRepo.updateStatus(connection.id, 'paused');
-    return NextResponse.json({ ok: true, status: 'paused' });
+    return NextResponse.json({ 
+      ok: true, 
+      status: 'paused',
+      cancelledJobs: cancelledCount,
+      message: `Connection paused. ${cancelledCount} queued job(s) cancelled.`
+    });
   } catch (error) {
     if (error instanceof Error && 'response' in error) {
       return (error as any).response;

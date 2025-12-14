@@ -21,6 +21,13 @@ export async function POST(
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 });
     }
 
+    // Check if connection is paused or disabled
+    if (connection.status !== 'active') {
+      return NextResponse.json({ 
+        error: `Cannot sync: Connection is ${connection.status}. Please resume the connection first.` 
+      }, { status: 400 });
+    }
+
     // Log connection details for debugging
     console.log(`[API] Creating sync job for connection: id=${connection.id}, name=${connection.name}, type=${connection.type}, status=${connection.status}`);
     console.log(`[API] Connection details: type=${connection.type}, dest_shop_domain=${connection.dest_shop_domain || 'null'}, base_url=${connection.base_url || 'null'}, location_id=${connection.dest_location_id || 'NOT SET'}`);

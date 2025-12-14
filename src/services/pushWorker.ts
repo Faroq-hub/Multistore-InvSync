@@ -970,8 +970,9 @@ export function startPushWorker(log: (m: string) => void) {
       
       // Check if connection is paused or disabled - skip processing if so
       if (conn.status !== 'active') {
-        log(`[Push Worker] Connection ${conn.id} is ${conn.status} - skipping job ${job.id}`);
-        await JobRepo.fail(job.id, `Connection is ${conn.status} - job skipped`);
+        log(`[Push Worker] ⏸️  Connection ${conn.id} is ${conn.status} - skipping job ${job.id}`);
+        console.log(`[Push Worker] Connection ${conn.id} (${conn.name}) is ${conn.status} - cancelling job ${job.id}`);
+        await JobRepo.fail(job.id, `Connection is ${conn.status} - job cancelled`);
         return setImmediate(loop);
       }
       
