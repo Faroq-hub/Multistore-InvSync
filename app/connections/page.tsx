@@ -61,6 +61,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
     sync_price: false,
     sync_categories: false,
     create_products: true,
+    product_status: false, // false = draft, true = active
   });
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ content: string; error?: boolean } | null>(null);
@@ -216,6 +217,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
               sync_price: formData.sync_price === true,
               sync_categories: formData.sync_categories === true,
               create_products: formData.create_products !== false,
+              product_status: formData.product_status === true,
             }
           : {
               name: formData.name,
@@ -225,6 +227,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
               sync_price: formData.sync_price === true,
               sync_categories: formData.sync_categories === true,
               create_products: formData.create_products !== false,
+              product_status: formData.product_status === true,
             };
 
       await makeRequest(endpoint, {
@@ -246,6 +249,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
         sync_price: false,
         sync_categories: false,
         create_products: true,
+        product_status: false,
       });
       fetchConnections();
     } catch (err: any) {
@@ -723,6 +727,12 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
               checked={formData.create_products !== false}
               onChange={(value) => setFormData({ ...formData, create_products: value })}
               helpText="When enabled, products that don't exist in the destination store will be created automatically. When disabled, only existing products will be updated."
+            />
+            <Checkbox
+              label="Publish products immediately"
+              checked={formData.product_status === true}
+              onChange={(value) => setFormData({ ...formData, product_status: value })}
+              helpText="When enabled, newly created products will be published (active) immediately. When disabled, products will be created as drafts."
             />
             <Checkbox
               label="Sync prices"

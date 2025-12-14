@@ -107,6 +107,7 @@ export async function migrate() {
       sync_price INTEGER NOT NULL DEFAULT 0, -- 1 = sync prices, 0 = don't sync prices
       sync_categories INTEGER NOT NULL DEFAULT 0, -- 1 = sync/create categories, 0 = don't
       create_products INTEGER NOT NULL DEFAULT 1, -- 1 = create products if not exist, 0 = skip
+      product_status INTEGER NOT NULL DEFAULT 0, -- 1 = active, 0 = draft
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (installation_id) REFERENCES installations(id)
@@ -204,6 +205,7 @@ async function runColumnMigrations() {
     `ALTER TABLE connections ADD COLUMN sync_price INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE connections ADD COLUMN sync_categories INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE connections ADD COLUMN create_products INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE connections ADD COLUMN product_status INTEGER NOT NULL DEFAULT 0`,
   ];
   
   for (const sql of columnMigrations) {
@@ -292,6 +294,7 @@ export type ConnectionRow = {
   sync_price: number; // 1 = true, 0 = false
   sync_categories: number; // 1 = true, 0 = false
   create_products: number; // 1 = true, 0 = false
+  product_status: number; // 1 = active, 0 = draft
   last_synced_at?: string | null;
   created_at: string;
   updated_at: string;
@@ -415,13 +418,14 @@ export const ConnectionRepo = {
   async insert(conn: Omit<ConnectionRow, 'created_at' | 'updated_at'>) {
     await ensureMigration(); // Ensure migration runs before insert
     const now = new Date().toISOString();
-    const stmt = getDb().prepare(`INSERT INTO connections (id, installation_id, type, name, status, dest_shop_domain, dest_location_id, base_url, consumer_key, consumer_secret, access_token, rules_json, sync_price, sync_categories, create_products, created_at, updated_at)
-      VALUES (@id, @installation_id, @type, @name, @status, @dest_shop_domain, @dest_location_id, @base_url, @consumer_key, @consumer_secret, @access_token, @rules_json, @sync_price, @sync_categories, @create_products, @created_at, @updated_at)`);
+    const stmt = getDb().prepare(`INSERT INTO connections (id, installation_id, type, name, status, dest_shop_domain, dest_location_id, base_url, consumer_key, consumer_secret, access_token, rules_json, sync_price, sync_categories, create_products, product_status, created_at, updated_at)
+      VALUES (@id, @installation_id, @type, @name, @status, @dest_shop_domain, @dest_location_id, @base_url, @consumer_key, @consumer_secret, @access_token, @rules_json, @sync_price, @sync_categories, @create_products, @product_status, @created_at, @updated_at)`);
     const result = stmt.run({ 
       ...conn, 
       sync_price: conn.sync_price ?? 0,
       sync_categories: conn.sync_categories ?? 0,
       create_products: conn.create_products ?? 1,
+      product_status: conn.product_status ?? 0,
       created_at: now, 
       updated_at: now 
     });
@@ -479,7 +483,7 @@ export const ConnectionRepo = {
       await result;
     }
   },
-  async updateSyncOptions(id: string, options: { sync_price?: number; sync_categories?: number; create_products?: number }) {
+  async updateSyncOptions(id: string, options: { sync_price?: number; sync_categories?: number; create_products?: number; product_status?: number }) {
     const now = new Date().toISOString();
     const updates: string[] = ['updated_at=@updated_at'];
     const params: any = { id, updated_at: now };
@@ -495,6 +499,10 @@ export const ConnectionRepo = {
     if (options.create_products !== undefined) {
       updates.push('create_products=@create_products');
       params.create_products = options.create_products;
+    }
+    if (options.product_status !== undefined) {
+      updates.push('product_status=@product_status');
+      params.product_status = options.product_status;
     }
     
     const stmt = getDb().prepare(`UPDATE connections SET ${updates.join(', ')} WHERE id=@id`);
@@ -512,6 +520,32 @@ export const ConnectionRepo = {
     }
   },
   async delete(id: string) {
+    await ensureMigration();
+    // Delete related job_items first (they reference jobs)
+    const jobItemsStmt = getDb().prepare(`
+      DELETE FROM job_items 
+      WHERE job_id IN (SELECT id FROM jobs WHERE connection_id=@connection_id)
+    `);
+    const jobItemsResult = jobItemsStmt.run({ connection_id: id });
+    if (jobItemsResult instanceof Promise) {
+      await jobItemsResult;
+    }
+    
+    // Delete related jobs
+    const jobsStmt = getDb().prepare(`DELETE FROM jobs WHERE connection_id=@connection_id`);
+    const jobsResult = jobsStmt.run({ connection_id: id });
+    if (jobsResult instanceof Promise) {
+      await jobsResult;
+    }
+    
+    // Delete audit logs referencing this connection
+    const auditStmt = getDb().prepare(`DELETE FROM audit_logs WHERE connection_id=@connection_id`);
+    const auditResult = auditStmt.run({ connection_id: id });
+    if (auditResult instanceof Promise) {
+      await auditResult;
+    }
+    
+    // Finally delete the connection
     const stmt = getDb().prepare(`DELETE FROM connections WHERE id=@id`);
     const result = stmt.run({ id });
     if (result instanceof Promise) {
@@ -519,14 +553,19 @@ export const ConnectionRepo = {
     }
   },
   async deleteAll(installation_id: string) {
-    const stmt = getDb().prepare(`DELETE FROM connections WHERE installation_id=@installation_id`);
-    const result = stmt.run({ installation_id });
-    if (result instanceof Promise) {
-      await result;
+    await ensureMigration();
+    // Get all connection IDs for this installation
+    const connStmt = getDb().prepare(`SELECT id FROM connections WHERE installation_id=@installation_id`);
+    const connections = (connStmt.all({ installation_id }) instanceof Promise 
+      ? await connStmt.all({ installation_id }) 
+      : connStmt.all({ installation_id })) as { id: string }[];
+    
+    // Delete each connection (which will cascade delete related records)
+    for (const conn of connections) {
+      await this.delete(conn.id);
     }
-    // Return the number of deleted rows
-    const changes = result instanceof Promise ? (await result).changes : result.changes;
-    return changes;
+    
+    return connections.length;
   },
   async listAllActive(): Promise<ConnectionRow[]> {
     const stmt = getDb().prepare(`SELECT * FROM connections WHERE status='active' ORDER BY created_at DESC`);

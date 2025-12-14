@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS connections (
   sync_price INTEGER NOT NULL DEFAULT 0,
   sync_categories INTEGER NOT NULL DEFAULT 0,
   create_products INTEGER NOT NULL DEFAULT 1,
+  product_status INTEGER NOT NULL DEFAULT 0,
   last_synced_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,

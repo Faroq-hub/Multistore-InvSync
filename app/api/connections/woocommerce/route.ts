@@ -158,6 +158,7 @@ export async function POST(request: NextRequest) {
     const syncPrice = body?.sync_price === true || body?.sync_price === 1 ? 1 : 0;
     const syncCategories = body?.sync_categories === true || body?.sync_categories === 1 ? 1 : 0;
     const createProducts = body?.create_products === false || body?.create_products === 0 ? 0 : 1; // Default true
+    const productStatus = body?.product_status === true || body?.product_status === 1 ? 1 : 0; // Default draft (0)
 
     const connId = ulid();
     await ConnectionRepo.insert({
@@ -176,6 +177,7 @@ export async function POST(request: NextRequest) {
       sync_price: syncPrice,
       sync_categories: syncCategories,
       create_products: createProducts,
+      product_status: productStatus,
       last_synced_at: null
     });
 

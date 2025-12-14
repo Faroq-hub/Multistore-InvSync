@@ -47,7 +47,8 @@ export default async function connectionsRoutes(app: FastifyInstance) {
       rules_json: null,
       sync_price: 0,
       sync_categories: 0,
-      create_products: 1
+      create_products: 1,
+      product_status: 0
     });
     reply.send({ ok: true });
   });
@@ -79,7 +80,8 @@ export default async function connectionsRoutes(app: FastifyInstance) {
       rules_json: null,
       sync_price: 0,
       sync_categories: 0,
-      create_products: 1
+      create_products: 1,
+      product_status: 0
     });
     reply.send({ ok: true });
   });
