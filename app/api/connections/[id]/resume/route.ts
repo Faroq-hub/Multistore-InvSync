@@ -19,8 +19,24 @@ export async function POST(
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 });
     }
 
+    // Check if connection is already active
+    if (connection.status === 'active') {
+      return NextResponse.json({ 
+        ok: true, 
+        status: 'active',
+        message: 'Connection is already active'
+      });
+    }
+
+    // Log the resume action
+    console.log(`[API] Resuming connection ${id} (${connection.name}) - status changed from ${connection.status} to active`);
+
     await ConnectionRepo.updateStatus(connection.id, 'active');
-    return NextResponse.json({ ok: true, status: 'active' });
+    return NextResponse.json({ 
+      ok: true, 
+      status: 'active',
+      message: 'Connection resumed successfully. Sync jobs will now be processed.'
+    });
   } catch (error) {
     if (error instanceof Error && 'response' in error) {
       return (error as any).response;
