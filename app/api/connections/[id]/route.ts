@@ -111,33 +111,6 @@ export async function PATCH(
     console.error('Error updating connection:', error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
-} (body.access_token !== undefined && typeof body.access_token === 'string' && body.access_token.trim()) {
-      if (connection.type === 'shopify') {
-        await ConnectionRepo.updateAccessToken(id, body.access_token.trim());
-        console.log(`[API] Updated access_token for connection ${id}`);
-      } else {
-        return NextResponse.json({ error: 'access_token can only be updated for Shopify connections' }, { status: 400 });
-      }
-    }
-
-    const updated = await ConnectionRepo.get(id);
-    return NextResponse.json({ 
-      message: 'Connection updated successfully',
-      connection: updated ? {
-        id: updated.id,
-        name: updated.name,
-        dest_location_id: updated.dest_location_id,
-        updated_at: updated.updated_at
-      } : null
-    });
-  } catch (error) {
-    if (error instanceof Error && 'response' in error) {
-      return (error as any).response;
-    }
-    console.error('Error updating connection:', error);
-    const message = error instanceof Error ? error.message : 'Failed to update connection';
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
 }
 
 export async function DELETE(

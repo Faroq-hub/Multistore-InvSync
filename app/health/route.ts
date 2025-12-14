@@ -1,20 +1,17 @@
 import { NextResponse } from 'next/server';
-import { getHealthStatus } from '../../../src/utils/health';
 
 export const runtime = 'nodejs';
 
 export async function GET() {
   try {
-    // Get detailed health status
-    const health = await getHealthStatus();
-    
-    // Return appropriate status code based on health
-    const statusCode = health.status === 'healthy' ? 200 : health.status === 'degraded' ? 200 : 503;
-    
+    // Simple health check for Next.js service
+    // For detailed health (database, connections, etc.), use the backend /health endpoint
     return NextResponse.json({
-      ...health,
-      service: 'nextjs'
-    }, { status: statusCode });
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      service: 'nextjs',
+      message: 'Next.js service is running'
+    }, { status: 200 });
   } catch (error: any) {
     // If health check fails, return unhealthy status
     return NextResponse.json({
