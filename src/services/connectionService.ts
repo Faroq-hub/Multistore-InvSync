@@ -7,7 +7,7 @@
 import { ulid } from 'ulid';
 import { ConnectionRepo, InstallationRepo } from '../db';
 import type { ConnectionRow } from '../db';
-import { encryptSecret } from '../utils/secrets';
+// Import secrets utility dynamically to avoid module load errors if ENCRYPTION_KEY is missing
 
 export interface CreateShopifyConnectionParams {
   installation_id: string;
@@ -52,6 +52,10 @@ export interface UpdateConnectionParams {
 export async function createShopifyConnection(params: CreateShopifyConnectionParams): Promise<string> {
   const connId = ulid();
   
+  // Encrypt access token
+  const { encryptSecret } = await import('../utils/secrets');
+  const encryptedToken = encryptSecret(params.access_token);
+  
   await ConnectionRepo.insert({
     id: connId,
     installation_id: params.installation_id,
@@ -63,7 +67,7 @@ export async function createShopifyConnection(params: CreateShopifyConnectionPar
     base_url: null,
     consumer_key: null,
     consumer_secret: null,
-      access_token: encryptSecret(params.access_token),
+    access_token: encryptedToken,
     rules_json: params.rules ? JSON.stringify(params.rules) : null,
     sync_price: params.sync_price ? 1 : 0,
     sync_categories: params.sync_categories ? 1 : 0,
@@ -85,6 +89,10 @@ export async function createWooCommerceConnection(params: CreateWooCommerceConne
   let baseUrl = params.base_url.replace(/\/+$/, ''); // Remove trailing slashes
   baseUrl = baseUrl.replace(/\/wp-json\/?.*$/, ''); // Remove /wp-json and anything after
   
+  // Encrypt consumer secret
+  const { encryptSecret } = await import('../utils/secrets');
+  const encryptedSecret = encryptSecret(params.consumer_secret);
+  
   await ConnectionRepo.insert({
     id: connId,
     installation_id: params.installation_id,
@@ -95,7 +103,7 @@ export async function createWooCommerceConnection(params: CreateWooCommerceConne
     dest_location_id: null,
     base_url: baseUrl,
     consumer_key: params.consumer_key,
-      consumer_secret: encryptSecret(params.consumer_secret),
+    consumer_secret: encryptedSecret,
     access_token: null,
     rules_json: params.rules ? JSON.stringify(params.rules) : null,
     sync_price: params.sync_price ? 1 : 0,
@@ -139,7 +147,9 @@ export async function updateConnection(
   if (params.access_token !== undefined) {
     const connection = await ConnectionRepo.get(connectionId);
     if (connection && connection.type === 'shopify') {
-      await ConnectionRepo.updateAccessToken(connectionId, encryptSecret(params.access_token) || '');
+      const { encryptSecret } = await import('../utils/secrets');
+      const encryptedToken = encryptSecret(params.access_token);
+      await ConnectionRepo.updateAccessToken(connectionId, encryptedToken || params.access_token);
     }
   }
   

@@ -14,6 +14,7 @@
  * - Key rotation policies
  */
 
+// Import crypto functions - using static import since crypto.ts now handles missing ENCRYPTION_KEY gracefully
 import { encryptString, decryptString } from '../security/crypto';
 
 /**
