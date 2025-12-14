@@ -302,6 +302,48 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
     }
   };
 
+  const handleExportLogs = async (connectionId: string, connectionName: string) => {
+    try {
+      const response = await makeRequest(`/api/connections/${connectionId}/export-logs?limit=10000`, { 
+        method: 'GET' 
+      });
+      
+      // If response is a blob (CSV file), download it
+      if (response instanceof Blob || (typeof response === 'object' && response !== null && 'body' in response)) {
+        // For Next.js API routes returning files, we need to fetch directly
+        const token = await getSessionToken(app);
+        const downloadResponse = await fetch(`/api/connections/${connectionId}/export-logs?limit=10000`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'X-Shop': shop,
+          },
+        });
+        
+        if (!downloadResponse.ok) {
+          throw new Error(`Failed to export logs: ${downloadResponse.status}`);
+        }
+        
+        const blob = await downloadResponse.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const sanitizedName = connectionName.replace(/[^a-zA-Z0-9-_]/g, '_');
+        a.download = `sync-logs-${sanitizedName}-${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        setToast({ content: 'Logs exported successfully' });
+      } else {
+        // Fallback if response is JSON (error case)
+        throw new Error('Unexpected response format');
+      }
+    } catch (err) {
+      setToast({ content: err instanceof Error ? err.message : 'Failed to export logs', error: true });
+    }
+  };
+
   const handleEditClick = async (connection: Connection) => {
     try {
       // Fetch full connection details
@@ -467,6 +509,13 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
           Resume
         </Button>
       )}
+      <Button 
+        size="slim" 
+        onClick={() => handleExportLogs(conn.id, conn.name)}
+        disabled={loading}
+      >
+        Export Logs
+      </Button>
       <Button size="slim" tone="critical" onClick={() => handleDeleteClick(conn)}>
         Delete
       </Button>

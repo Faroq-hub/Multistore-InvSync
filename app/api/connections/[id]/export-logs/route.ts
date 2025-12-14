@@ -24,20 +24,33 @@ export async function GET(
 
     const logs = await AuditRepo.exportLogs(id, limit);
     
+    // Helper function to escape CSV values
+    const escapeCsv = (value: string | null | undefined): string => {
+      if (value === null || value === undefined) return '';
+      const str = String(value);
+      // Escape quotes by doubling them, and wrap in quotes if contains comma, quote, or newline
+      if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+    
     // Convert to CSV
     const headers = ['Timestamp', 'Level', 'SKU', 'Message'];
     const csvRows = [
-      headers.join(','),
+      headers.map(escapeCsv).join(','),
       ...logs.map(log => [
-        log.ts,
-        log.level,
-        log.sku || '',
-        `"${log.message.replace(/"/g, '""')}"` // Escape quotes in CSV
+        escapeCsv(log.ts),
+        escapeCsv(log.level),
+        escapeCsv(log.sku),
+        escapeCsv(log.message)
       ].join(','))
     ];
     
     const csv = csvRows.join('\n');
-    const filename = `sync-logs-${connection.name}-${new Date().toISOString().split('T')[0]}.csv`;
+    // Sanitize filename - remove special characters
+    const sanitizedName = connection.name.replace(/[^a-zA-Z0-9-_]/g, '_');
+    const filename = `sync-logs-${sanitizedName}-${new Date().toISOString().split('T')[0]}.csv`;
 
     return new NextResponse(csv, {
       headers: {
