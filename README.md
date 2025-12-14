@@ -254,11 +254,10 @@ Stores all sync operations for debugging and monitoring.
 
 ## Deployment
 
-### Quick Start
-
-**For the fastest deployment, see:** [`DEPLOYMENT_QUICK_START.md`](DEPLOYMENT_QUICK_START.md)
-
-**For comprehensive deployment guide, see:** [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md)
+**For comprehensive deployment guides, see:**
+- [`DEPLOYMENT.md`](DEPLOYMENT.md) - General deployment guide
+- [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) - Detailed deployment instructions
+- [`POSTGRES_DEPLOYMENT.md`](POSTGRES_DEPLOYMENT.md) - PostgreSQL-specific deployment
 
 ### Recommended Platforms
 
@@ -266,10 +265,6 @@ Stores all sync operations for debugging and monitoring.
 2. **Render** - Free tier available, easy setup
 3. **Heroku** - Industry standard, robust platform
 4. **Vercel + Railway** - Optimal performance (frontend + backend separate)
-
-### Deployment Checklist
-
-Use [`DEPLOYMENT_CHECKLIST.md`](DEPLOYMENT_CHECKLIST.md) before deploying.
 
 ### Environment Variables
 
@@ -292,9 +287,7 @@ The application supports both SQLite (default) and PostgreSQL:
 - Set `DATABASE_URL` environment variable
 - Format: `postgresql://user:password@host:port/database`
 - Run migration: `npm run migrate:postgres`
-- See `QUICK_START_POSTGRES.md` for quick setup
-- See `POSTGRES_TESTING.md` for testing guide
-- See `POSTGRES_DEPLOYMENT.md` for production deployment
+- See [`POSTGRES_DEPLOYMENT.md`](POSTGRES_DEPLOYMENT.md) for production deployment
 
 **Migrating from SQLite to PostgreSQL:**
 ```bash
