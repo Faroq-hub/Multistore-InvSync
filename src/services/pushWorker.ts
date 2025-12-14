@@ -687,11 +687,11 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
   }
 
   const fetch = await getFetch();
-  // Decrypt access token if encrypted
+  // Decrypt access token if encrypted (or use as-is if plain text)
   const { decryptSecret } = await import('../utils/secrets');
   const decryptedToken = decryptSecret(conn.access_token);
   if (!decryptedToken) {
-    throw new Error('Failed to decrypt access token. Connection may need to be reconfigured.');
+    throw new Error('Access token is missing. Connection may need to be reconfigured.');
   }
   
   const headers = {
@@ -1138,11 +1138,11 @@ async function pushToWoo(connId: string, log: (m: string) => void, filterSkus?: 
   const conn = await ConnectionRepo.get(connId);
   if (!conn || !conn.base_url || !conn.consumer_key || !conn.consumer_secret) throw new Error('Invalid Woo connection');
   
-  // Decrypt consumer secret if encrypted
+  // Decrypt consumer secret if encrypted (or use as-is if plain text)
   const { decryptSecret } = await import('../utils/secrets');
   const decryptedSecret = decryptSecret(conn.consumer_secret);
   if (!decryptedSecret) {
-    throw new Error('Failed to decrypt consumer secret. Connection may need to be reconfigured.');
+    throw new Error('Consumer secret is missing. Connection may need to be reconfigured.');
   }
   
   const items = await getSourceItems(filterSkus);
