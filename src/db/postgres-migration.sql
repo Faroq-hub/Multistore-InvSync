@@ -96,6 +96,15 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_logs(ts);
 CREATE INDEX IF NOT EXISTS idx_audit_conn ON audit_logs(connection_id);
+CREATE INDEX IF NOT EXISTS idx_audit_level ON audit_logs(level);
+CREATE INDEX IF NOT EXISTS idx_audit_sku ON audit_logs(sku) WHERE sku IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_audit_job ON audit_logs(job_id) WHERE job_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_updated ON jobs(updated_at);
+CREATE INDEX IF NOT EXISTS idx_job_items_state ON job_items(state);
+CREATE INDEX IF NOT EXISTS idx_job_items_sku ON job_items(sku);
+CREATE INDEX IF NOT EXISTS idx_connections_type ON connections(type);
+CREATE INDEX IF NOT EXISTS idx_connections_updated ON connections(updated_at);
 
 -- Shopify OAuth sessions (offline/online)
 CREATE TABLE IF NOT EXISTS shopify_sessions (

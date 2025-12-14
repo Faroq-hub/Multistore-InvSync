@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ConnectionRepo, InstallationRepo } from '../../../../src/db';
 import { requireShopFromSession } from '../../_utils/authorize';
+import { updateConnection } from '../../../../src/services/connectionService';
+import { UpdateConnectionSchema, validateBody } from '../../../../src/validation/schemas';
 
 export async function GET(
   request: NextRequest,
@@ -60,6 +62,10 @@ export async function GET(
   }
 }
 
+/**
+ * PATCH /api/connections/[id]
+ * Update a connection
+ */
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -68,6 +74,15 @@ export async function PATCH(
     const { id } = await params;
     const shop = await requireShopFromSession(request);
     const body = await request.json();
+
+    // Validate input with Zod
+    const validation = validateBody(UpdateConnectionSchema, body);
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: validation.error },
+        { status: 400 }
+      );
+    }
 
     const installation = await InstallationRepo.getByDomain(shop);
     if (!installation) {
@@ -83,28 +98,20 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized: Connection does not belong to this shop' }, { status: 403 });
     }
 
-    // Update location_id if provided
-    if (body.dest_location_id !== undefined) {
-      await ConnectionRepo.updateLocationId(id, body.dest_location_id || null);
-      console.log(`[API] Updated location_id for connection ${id}: ${body.dest_location_id || 'null'}`);
-    }
+    // Update connection using service layer
+    await updateConnection(id, validation.data);
 
-    // Update name if provided
-    if (body.name !== undefined && typeof body.name === 'string' && body.name.trim()) {
-      await ConnectionRepo.updateName(id, body.name.trim());
-      console.log(`[API] Updated name for connection ${id}: ${body.name}`);
+    const updated = await ConnectionRepo.get(id);
+    return NextResponse.json({ connection: updated });
+  } catch (error) {
+    if (error instanceof Error && 'response' in error) {
+      return (error as any).response;
     }
-
-    // Update rules if provided (e.g., sync_price)
-    if (body.rules !== undefined) {
-      const existingRules = connection.rules_json ? JSON.parse(connection.rules_json) : {};
-      const updatedRules = { ...existingRules, ...body.rules };
-      await ConnectionRepo.updateRules(id, JSON.stringify(updatedRules));
-      console.log(`[API] Updated rules for connection ${id}:`, updatedRules);
-    }
-
-    // Update access_token if provided (for Shopify connections)
-    if (body.access_token !== undefined && typeof body.access_token === 'string' && body.access_token.trim()) {
+    const message = error instanceof Error ? error.message : 'Failed to update connection';
+    console.error('Error updating connection:', error);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+} (body.access_token !== undefined && typeof body.access_token === 'string' && body.access_token.trim()) {
       if (connection.type === 'shopify') {
         await ConnectionRepo.updateAccessToken(id, body.access_token.trim());
         console.log(`[API] Updated access_token for connection ${id}`);

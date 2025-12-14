@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ulid } from 'ulid';
-import { ConnectionRepo, InstallationRepo } from '../../../../src/db';
+import { InstallationRepo } from '../../../../src/db';
 import { requireShopFromSession } from '../../_utils/authorize';
 import { CreateWooCommerceConnectionSchema, validateBody } from '../../../../src/validation/schemas';
+import { createWooCommerceConnection, testWooCommerceConnection } from '../../../../src/services/connectionService';
 
 export async function POST(request: NextRequest) {
   try {
@@ -135,31 +135,18 @@ export async function POST(request: NextRequest) {
     const existingInstallation = await InstallationRepo.getByDomain(shop);
     const installationId = existingInstallation?.id ?? await InstallationRepo.upsert(shop);
 
-    // Convert boolean to number (1 = true, 0 = false) - already validated by Zod
-    const syncPrice = sync_price ? 1 : 0;
-    const syncCategories = sync_categories ? 1 : 0;
-    const createProducts = create_products ? 1 : 0;
-    const productStatusValue = product_status ? 1 : 0;
-
-    const connId = ulid();
-    await ConnectionRepo.insert({
-      id: connId,
+    // Create connection using service layer
+    const connId = await createWooCommerceConnection({
       installation_id: installationId,
-      type: 'woocommerce',
       name,
-      status: 'active',
-      dest_shop_domain: null,
-      dest_location_id: null,
-      base_url: baseUrl,
-      consumer_key: consumer_key,
-      consumer_secret: consumer_secret,
-      access_token: null,
-      rules_json: rules ? JSON.stringify(rules) : null,
-      sync_price: syncPrice,
-      sync_categories: syncCategories,
-      create_products: createProducts,
-      product_status: productStatusValue,
-      last_synced_at: null
+      base_url,
+      consumer_key,
+      consumer_secret,
+      sync_price,
+      sync_categories,
+      create_products,
+      product_status,
+      rules: rules || null
     });
 
     return NextResponse.json({ id: connId });

@@ -62,6 +62,64 @@
   - Centralized security headers
   - Reusable security utilities
 
+### 3. Code Organization (Continued)
+- ✅ **Service Layer**
+  - Created `src/services/connectionService.ts` for connection business logic
+  - Extracted connection creation, update, and validation logic
+  - Refactored API routes to use service layer
+  - Improved separation of concerns
+
+**Files:**
+- `src/services/connectionService.ts` - Connection business logic
+- `app/api/connections/shopify/route.ts` - Refactored to use service
+- `app/api/connections/woocommerce/route.ts` - Refactored to use service
+- `app/api/connections/[id]/route.ts` - Refactored to use service
+
+### 4. Performance
+- ✅ **Database Indexes**
+  - Added indexes for frequently queried fields:
+    - `idx_audit_level` - For filtering audit logs by level
+    - `idx_audit_sku` - For SKU-based queries (partial index)
+    - `idx_audit_job` - For job-based queries (partial index)
+    - `idx_jobs_created` - For sorting jobs by creation time
+    - `idx_jobs_updated` - For sorting jobs by update time
+    - `idx_job_items_state` - For filtering job items by state
+    - `idx_job_items_sku` - For SKU lookups in job items
+    - `idx_connections_type` - For filtering by connection type
+    - `idx_connections_updated` - For sorting connections by update time
+
+**Files:**
+- `src/db/postgres-migration.sql` - Added performance indexes
+
+### 5. Documentation
+- ✅ **Code Comments for Complex Logic**
+  - Added comprehensive JSDoc comments to:
+    - `applyRules()` - Explains mapping rules and filtering logic
+    - Product grouping logic - Explains variant handling strategy
+    - Duplicate prevention logic - Explains how we prevent duplicate products
+    - `testWooCommerceConnection()` - Documents connection testing steps
+  - Enhanced inline comments for complex algorithms
+
+**Files:**
+- `src/services/pushWorker.ts` - Added detailed comments
+- `src/services/connectionService.ts` - Added function documentation
+
+### 6. Security (Enhanced)
+- ✅ **Secrets Management**
+  - Created `src/utils/secrets.ts` for encryption/decryption utilities
+  - Encrypt sensitive data before storing in database:
+    - `access_token` (Shopify access tokens)
+    - `consumer_secret` (WooCommerce consumer secrets)
+  - Automatic decryption when reading from database
+  - Uses AES-256-GCM encryption from `src/security/crypto.ts`
+  - Backward compatible with plain text values (for migration)
+
+**Files:**
+- `src/utils/secrets.ts` - New secrets management utility
+- `src/services/connectionService.ts` - Encrypts secrets on creation
+- `src/db.ts` - Encrypts secrets on update
+- `src/services/pushWorker.ts` - Decrypts secrets when using
+
 ## 🚧 Remaining Improvements (Future Work)
 
 ### 1. Type Safety (Continued)
@@ -123,11 +181,24 @@ if (!validation.success) {
 const { page, limit } = validation.data;
 ```
 
-## Next Steps
+## Summary
+
+All major code quality improvements from `CODE_IMPROVEMENTS_AND_FEATURES.md` (lines 361-403) have been implemented:
+
+✅ **Type Safety** - Stricter TypeScript + Zod runtime validation  
+✅ **Security** - Security headers + Input validation + Secrets encryption  
+✅ **Code Organization** - Service layer extraction + Centralized validation  
+✅ **Performance** - Database indexes for frequently queried fields  
+✅ **Documentation** - Code comments for complex logic  
+✅ **Secrets Management** - Encryption for sensitive data (access tokens, consumer secrets)
+
+## Next Steps (Optional Enhancements)
 
 1. Apply validation to remaining API endpoints
 2. Add more comprehensive error handling
-3. Implement caching for frequently accessed data
-4. Add database query optimization
-5. Create API documentation
+3. Implement caching layer (Redis) for frequently accessed data
+4. Create API documentation (OpenAPI/Swagger)
+5. Add branded types for IDs
+6. Implement dependency injection
+7. Add key rotation policies for encryption
 

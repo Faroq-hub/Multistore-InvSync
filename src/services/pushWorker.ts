@@ -41,20 +41,34 @@ async function getSourceItems(filterSkus?: Set<string>): Promise<CatalogItem[]> 
   return items;
 }
 
+/**
+ * Apply mapping rules to a catalog item
+ * 
+ * This function processes a single catalog item through the connection's mapping rules:
+ * 1. First checks if the item passes all filter rules (tags, product type, vendor, price range, etc.)
+ * 2. If filters pass, applies transformation rules (price adjustments, field mappings, etc.)
+ * 3. Returns the item with a special _skip marker if it should be excluded from sync
+ * 
+ * @param item - The catalog item to process
+ * @param rulesJson - JSON string containing mapping rules (filters, price adjustments, field mappings)
+ * @returns Processed catalog item, or item with _skip marker if filtered out
+ */
 function applyRules(item: CatalogItem, rulesJson: string | null): CatalogItem {
   if (!rulesJson) return item;
   try {
     const rules: MappingRules = JSON.parse(rulesJson);
     
     // First check if item passes filters
+    // Filters can exclude items based on tags, product type, vendor, price range, inventory, etc.
     if (!passesFilters(item, rules)) {
       // Return a special marker that this item should be skipped
       return { ...item, _skip: true } as any;
     }
     
-    // Apply mapping rules
+    // Apply mapping rules (price adjustments, field mappings, etc.)
     return applyMappingRules(item, rules) as CatalogItem;
   } catch {
+    // If rules parsing fails, return item unchanged
     return item;
   }
 }
@@ -673,8 +687,15 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
   }
 
   const fetch = await getFetch();
+  // Decrypt access token if encrypted
+  const { decryptSecret } = await import('../utils/secrets');
+  const decryptedToken = decryptSecret(conn.access_token);
+  if (!decryptedToken) {
+    throw new Error('Failed to decrypt access token. Connection may need to be reconfigured.');
+  }
+  
   const headers = {
-    'X-Shopify-Access-Token': conn.access_token,
+    'X-Shopify-Access-Token': decryptedToken,
     'Content-Type': 'application/json'
   };
   const apiVersion = process.env.DEST_API_VERSION || '2024-10';
@@ -691,7 +712,15 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
     log(`⚠️  WARNING: create_products is disabled. Products will NOT be created, only existing products will be updated.`);
   }
 
-  // Group items by source productId to handle variants together
+  /**
+   * Group items by product ID to handle variants together
+   * 
+   * Products with multiple variants (e.g., different sizes/colors) need to be synced
+   * as a single product with multiple variants in Shopify. This grouping ensures:
+   * - All variants of the same product are processed together
+   * - We can check if the product already exists before creating it
+   * - We can add missing variants to existing products instead of creating duplicates
+   */
   const productGroups = new Map<string, CatalogItem[]>();
   for (const raw of items) {
     const item = applyRules(raw, conn.rules_json);
@@ -699,7 +728,8 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
     if ((item as any)._skip) {
       continue;
     }
-    const key = item.productId || item.sku; // Use productId if available, otherwise treat as single product
+    // Use productId if available (for variants), otherwise use SKU (for single products)
+    const key = item.productId || item.sku;
     if (!productGroups.has(key)) {
       productGroups.set(key, []);
     }
@@ -738,7 +768,20 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
       
       log(`Product group "${productKey}": ${existingVariants.length} existing, ${missingVariants.length} missing`);
 
-      // Handle missing variants
+      /**
+       * Handle missing variants that need to be created
+       * 
+       * Strategy:
+       * 1. If some variants already exist → add missing variants to the existing product
+       * 2. If no variants exist → check for duplicate product by title before creating
+       *    - If duplicate found → add variants to existing product
+       *    - If no duplicate → create new product with all variants
+       * 
+       * This prevents duplicate products when:
+       * - A product was partially synced before
+       * - A product was manually created in the destination store
+       * - Product titles match but SKUs differ
+       */
       if (missingVariants.length > 0 && shouldCreateProducts) {
         if (existingVariants.length > 0) {
           // Some variants exist - add missing ones to the existing product
@@ -750,7 +793,7 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
               if (newVariant) {
                 existingVariants.push({ item, variant: newVariant, product: existingVariants[0].product });
               }
-              await sleep(250);
+              await sleep(250); // Rate limit: 250ms between variant additions
             }
           }
         } else {
@@ -768,7 +811,7 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
             log(`⚠️  Found existing product with same title (ID: ${existingProductId}) - adding variants to prevent duplicate`);
             log(`   Existing product: "${existingProduct.product.title}"`);
             
-            // Check which SKUs already exist in this product
+            // Check which SKUs already exist in this product to avoid duplicate variants
             const existingSkus = new Set(existingProduct.variants.map((v: any) => v.sku).filter(Boolean));
             const variantsToAdd = missingVariants.filter(item => !existingSkus.has(item.sku));
             
@@ -1094,12 +1137,20 @@ async function createProductInWoo(
 async function pushToWoo(connId: string, log: (m: string) => void, filterSkus?: Set<string>) {
   const conn = await ConnectionRepo.get(connId);
   if (!conn || !conn.base_url || !conn.consumer_key || !conn.consumer_secret) throw new Error('Invalid Woo connection');
+  
+  // Decrypt consumer secret if encrypted
+  const { decryptSecret } = await import('../utils/secrets');
+  const decryptedSecret = decryptSecret(conn.consumer_secret);
+  if (!decryptedSecret) {
+    throw new Error('Failed to decrypt consumer secret. Connection may need to be reconfigured.');
+  }
+  
   const items = await getSourceItems(filterSkus);
 
   const fetch = await getFetch();
   const auth = new URLSearchParams({
     consumer_key: conn.consumer_key,
-    consumer_secret: conn.consumer_secret
+    consumer_secret: decryptedSecret
   });
   const base = conn.base_url.replace(/\/$/, '');
 

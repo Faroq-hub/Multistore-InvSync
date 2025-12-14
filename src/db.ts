@@ -477,6 +477,8 @@ export const ConnectionRepo = {
   },
   async updateAccessToken(id: string, access_token: string) {
     const now = new Date().toISOString();
+    // Note: Encryption should be handled by the service layer
+    // This method accepts already-encrypted tokens
     const stmt = getDb().prepare(`UPDATE connections SET access_token=@access_token, updated_at=@updated_at WHERE id=@id`);
     const result = stmt.run({ id, access_token, updated_at: now });
     if (result instanceof Promise) {
