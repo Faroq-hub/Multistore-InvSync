@@ -967,6 +967,14 @@ export function startPushWorker(log: (m: string) => void) {
         await JobRepo.fail(job.id, 'Connection not found');
         return setImmediate(loop);
       }
+      
+      // Check if connection is paused or disabled - skip processing if so
+      if (conn.status !== 'active') {
+        log(`[Push Worker] Connection ${conn.id} is ${conn.status} - skipping job ${job.id}`);
+        await JobRepo.fail(job.id, `Connection is ${conn.status} - job skipped`);
+        return setImmediate(loop);
+      }
+      
       try {
         // For delta jobs, scope to job_items.SKUs
         const skus = job.job_type === 'delta' ? new Set<string>(await JobItemRepo.listSkus(job.id)) : undefined;
