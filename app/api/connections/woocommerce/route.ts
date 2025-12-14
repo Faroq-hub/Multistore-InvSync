@@ -2,43 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ulid } from 'ulid';
 import { ConnectionRepo, InstallationRepo } from '../../../../src/db';
 import { requireShopFromSession } from '../../_utils/authorize';
+import { CreateWooCommerceConnectionSchema, validateBody } from '../../../../src/validation/schemas';
 
 export async function POST(request: NextRequest) {
   try {
     const shop = await requireShopFromSession(request);
     const body = await request.json();
 
-    const name = String(body?.name || '').trim();
-    let baseUrl = String(body?.base_url || '').trim();
-    const consumerKey = String(body?.consumer_key || '').trim();
-    const consumerSecret = String(body?.consumer_secret || '').trim();
-
-    if (!name || !baseUrl || !consumerKey || !consumerSecret) {
+    // Validate input with Zod
+    const validation = validateBody(CreateWooCommerceConnectionSchema, body);
+    if (!validation.success) {
       return NextResponse.json(
-        { error: 'name, base_url, consumer_key, and consumer_secret are required' },
+        { error: validation.error },
         { status: 400 }
       );
     }
+
+    const { name, base_url, consumer_key, consumer_secret, sync_price, sync_categories, create_products, product_status, rules } = validation.data;
 
     // Normalize base_url: remove trailing slashes and /wp-json if present
-    baseUrl = baseUrl.replace(/\/+$/, ''); // Remove trailing slashes
+    let baseUrl = base_url.replace(/\/+$/, ''); // Remove trailing slashes
     baseUrl = baseUrl.replace(/\/wp-json\/?.*$/, ''); // Remove /wp-json and anything after
-    
-    // Validate URL format
-    try {
-      const url = new URL(baseUrl);
-      if (!url.protocol || !['http:', 'https:'].includes(url.protocol)) {
-        return NextResponse.json(
-          { error: 'base_url must be a valid HTTP or HTTPS URL (e.g., https://example.com)' },
-          { status: 400 }
-        );
-      }
-    } catch {
-      return NextResponse.json(
-        { error: 'base_url must be a valid URL (e.g., https://example.com). Do not include /wp-json in the URL.' },
-        { status: 400 }
-      );
-    }
 
     // Test WooCommerce API connection
     try {
@@ -58,7 +42,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Now test WooCommerce API endpoint
-      const testUrl = `${baseUrl}/wp-json/wc/v3/products?consumer_key=${encodeURIComponent(consumerKey)}&consumer_secret=${encodeURIComponent(consumerSecret)}&per_page=1`;
+      const testUrl = `${baseUrl}/wp-json/wc/v3/products?consumer_key=${encodeURIComponent(consumer_key)}&consumer_secret=${encodeURIComponent(consumer_secret)}&per_page=1`;
       const testResponse = await fetch(testUrl, { method: 'GET' });
       
       if (!testResponse.ok) {
@@ -151,14 +135,11 @@ export async function POST(request: NextRequest) {
     const existingInstallation = await InstallationRepo.getByDomain(shop);
     const installationId = existingInstallation?.id ?? await InstallationRepo.upsert(shop);
 
-    // Parse rules from body if provided (e.g., price_multiplier)
-    const rules = (body?.rules && typeof body.rules === 'object') ? body.rules : null;
-
-    // Parse sync options with defaults
-    const syncPrice = body?.sync_price === true || body?.sync_price === 1 ? 1 : 0;
-    const syncCategories = body?.sync_categories === true || body?.sync_categories === 1 ? 1 : 0;
-    const createProducts = body?.create_products === false || body?.create_products === 0 ? 0 : 1; // Default true
-    const productStatus = body?.product_status === true || body?.product_status === 1 ? 1 : 0; // Default draft (0)
+    // Convert boolean to number (1 = true, 0 = false) - already validated by Zod
+    const syncPrice = sync_price ? 1 : 0;
+    const syncCategories = sync_categories ? 1 : 0;
+    const createProducts = create_products ? 1 : 0;
+    const productStatusValue = product_status ? 1 : 0;
 
     const connId = ulid();
     await ConnectionRepo.insert({
@@ -170,14 +151,14 @@ export async function POST(request: NextRequest) {
       dest_shop_domain: null,
       dest_location_id: null,
       base_url: baseUrl,
-      consumer_key: consumerKey,
-      consumer_secret: consumerSecret,
+      consumer_key: consumer_key,
+      consumer_secret: consumer_secret,
       access_token: null,
       rules_json: rules ? JSON.stringify(rules) : null,
       sync_price: syncPrice,
       sync_categories: syncCategories,
       create_products: createProducts,
-      product_status: productStatus,
+      product_status: productStatusValue,
       last_synced_at: null
     });
 

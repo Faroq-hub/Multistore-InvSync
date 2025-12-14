@@ -654,6 +654,46 @@ export const JobRepo = {
     }
     const changes = result instanceof Promise ? (await result).changes : result.changes;
     return changes;
+  },
+  // Dead letter queue methods
+  async listDead(limit = 100): Promise<JobRow[]> {
+    await ensureMigration();
+    const stmt = getDb().prepare(`SELECT * FROM jobs WHERE state='dead' ORDER BY updated_at DESC LIMIT @limit`);
+    const result = stmt.all({ limit });
+    return (result instanceof Promise ? await result : result) as JobRow[];
+  },
+  async listDeadByConnection(connection_id: string, limit = 50): Promise<JobRow[]> {
+    await ensureMigration();
+    const stmt = getDb().prepare(`SELECT * FROM jobs WHERE connection_id=@connection_id AND state='dead' ORDER BY updated_at DESC LIMIT @limit`);
+    const result = stmt.all({ connection_id, limit });
+    return (result instanceof Promise ? await result : result) as JobRow[];
+  },
+  async countDead(connection_id?: string): Promise<number> {
+    await ensureMigration();
+    const sql = connection_id 
+      ? `SELECT COUNT(*) as count FROM jobs WHERE state='dead' AND connection_id=@connection_id`
+      : `SELECT COUNT(*) as count FROM jobs WHERE state='dead'`;
+    const stmt = getDb().prepare(sql);
+    const result = stmt.get(connection_id ? { connection_id } : {});
+    const row = (result instanceof Promise ? await result : result) as { count: number } | undefined;
+    return row?.count ?? 0;
+  },
+  async retryDead(id: string): Promise<void> {
+    const now = new Date().toISOString();
+    const stmt = getDb().prepare(`UPDATE jobs SET state='queued', attempts=0, last_error=NULL, updated_at=@updated_at WHERE id=@id AND state='dead'`);
+    const result = stmt.run({ id, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
+  },
+  async deleteDead(id: string): Promise<boolean> {
+    const stmt = getDb().prepare(`DELETE FROM jobs WHERE id=@id AND state='dead'`);
+    const result = stmt.run({ id });
+    if (result instanceof Promise) {
+      await result;
+    }
+    const changes = result instanceof Promise ? (await result).changes : result.changes;
+    return (changes ?? 0) > 0;
   }
 };
 

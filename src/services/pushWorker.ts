@@ -1,6 +1,7 @@
 import { ConnectionRepo, JobRepo, JobItemRepo, AuditRepo, ConnectionRow } from '../db';
 import { getShopifyRateLimiter } from '../utils/rateLimiter';
 import { retryWithBackoff, categorizeError, ErrorType, fetchWithRetry } from '../utils/retry';
+import { applyMappingRules, passesFilters, type MappingRules } from '../models/mappingRules';
 
 // Generic fetch function type compatible with both native fetch and node-fetch
 type FetchFn = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{ ok: boolean; status: number; json: () => Promise<any>; text: () => Promise<string>; headers: { get: (name: string) => string | null } }>;
@@ -43,13 +44,16 @@ async function getSourceItems(filterSkus?: Set<string>): Promise<CatalogItem[]> 
 function applyRules(item: CatalogItem, rulesJson: string | null): CatalogItem {
   if (!rulesJson) return item;
   try {
-    const rules = JSON.parse(rulesJson);
-    const copy = { ...item };
-    if (typeof rules.price_multiplier === 'number' && !Number.isNaN(rules.price_multiplier)) {
-      const p = Number(copy.price);
-      if (!Number.isNaN(p)) copy.price = (p * rules.price_multiplier).toFixed(2);
+    const rules: MappingRules = JSON.parse(rulesJson);
+    
+    // First check if item passes filters
+    if (!passesFilters(item, rules)) {
+      // Return a special marker that this item should be skipped
+      return { ...item, _skip: true } as any;
     }
-    return copy;
+    
+    // Apply mapping rules
+    return applyMappingRules(item, rules) as CatalogItem;
   } catch {
     return item;
   }
@@ -463,6 +467,10 @@ async function createProductInShopify(
 ): Promise<{ variants: Map<string, any>; product: any } | null> {
   const shouldSyncCategories = conn.sync_categories === 1;
   const firstItem = items[0];
+  if (!firstItem) {
+    log('No items to create product');
+    return null;
+  }
   
   // Get the base product title (without variant suffix)
   const baseTitle = firstItem.productHandle 
@@ -687,6 +695,10 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
   const productGroups = new Map<string, CatalogItem[]>();
   for (const raw of items) {
     const item = applyRules(raw, conn.rules_json);
+    // Skip items that don't pass filter rules
+    if ((item as any)._skip) {
+      continue;
+    }
     const key = item.productId || item.sku; // Use productId if available, otherwise treat as single product
     if (!productGroups.has(key)) {
       productGroups.set(key, []);
@@ -1101,6 +1113,10 @@ async function pushToWoo(connId: string, log: (m: string) => void, filterSkus?: 
 
   for (const raw of items) {
     const item = applyRules(raw, conn.rules_json);
+    // Skip items that don't pass filter rules
+    if ((item as any)._skip) {
+      continue;
+    }
     try {
       // Search product by SKU
       const searchUrl = `${base}/wp-json/wc/v3/products?${auth.toString()}&sku=${encodeURIComponent(item.sku)}`;
@@ -1184,7 +1200,7 @@ export function startPushWorker(log: (m: string) => void) {
   log('[Push Worker] Starting push worker loop... v2');
   console.log('[Push Worker] Starting push worker loop... v2');
   
-  async function loop() {
+  async function loop(): Promise<void> {
     try {
       const job = await JobRepo.pickNext();
       if (!job) {
@@ -1196,7 +1212,8 @@ export function startPushWorker(log: (m: string) => void) {
       const conn = await ConnectionRepo.get(job.connection_id);
       if (!conn) {
         await JobRepo.fail(job.id, 'Connection not found');
-        return setImmediate(loop);
+        setImmediate(loop);
+        return;
       }
       
       // Check if connection is paused or disabled - skip processing if so
@@ -1204,7 +1221,8 @@ export function startPushWorker(log: (m: string) => void) {
         log(`[Push Worker] ⏸️  Connection ${conn.id} is ${conn.status} - skipping job ${job.id}`);
         console.log(`[Push Worker] Connection ${conn.id} (${conn.name}) is ${conn.status} - cancelling job ${job.id}`);
         await JobRepo.fail(job.id, `Connection is ${conn.status} - job cancelled`);
-        return setImmediate(loop);
+        setImmediate(loop);
+        return;
       }
       
       try {

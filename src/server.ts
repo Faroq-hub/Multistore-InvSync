@@ -14,6 +14,7 @@ import { migrate } from './db';
 import { startScheduler } from './services/feedCache';
 import { startPushWorker } from './services/pushWorker';
 import { startScheduledSync } from './services/scheduledSync';
+import { registerSecurityMiddleware } from './middleware/security';
 
 export function buildServer() {
   const app = Fastify({
@@ -29,6 +30,9 @@ export function buildServer() {
   app.register(sensible);
   app.register(etag);
   app.register(rateLimit, { max: 120, timeWindow: '1 minute' });
+  
+  // Register security middleware
+  registerSecurityMiddleware(app);
 
   // Register routes first (health endpoint must be available immediately)
   app.register(feedRoutes);

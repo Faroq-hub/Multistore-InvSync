@@ -75,7 +75,7 @@ function getMillisUntilNextSync(): number {
   }
   
   // Calculate milliseconds until next sync
-  const hoursUntil = (nextHour - currentHour + 24 * daysToAdd) % 24 || (daysToAdd ? 24 : 0);
+  const hoursUntil = nextHour !== undefined ? ((nextHour - currentHour + 24 * daysToAdd) % 24 || (daysToAdd ? 24 : 0)) : 0;
   const minutesUntil = 60 - currentMinutes;
   const secondsUntil = 60 - currentSeconds;
   

@@ -2,23 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ulid } from 'ulid';
 import { ConnectionRepo, InstallationRepo } from '../../../../src/db';
 import { requireShopFromSession } from '../../_utils/authorize';
+import { CreateShopifyConnectionSchema, validateBody } from '../../../../src/validation/schemas';
 
 export async function POST(request: NextRequest) {
   try {
     const shop = await requireShopFromSession(request);
     const body = await request.json();
 
-    const name = String(body?.name || '').trim();
-    const destShopDomain = String(body?.dest_shop_domain || '').trim();
-    const accessToken = String(body?.access_token || '').trim();
-    const destLocationId = body?.dest_location_id ? String(body.dest_location_id).trim() : null;
-
-    if (!name || !destShopDomain || !accessToken) {
+    // Validate input with Zod
+    const validation = validateBody(CreateShopifyConnectionSchema, body);
+    if (!validation.success) {
       return NextResponse.json(
-        { error: 'name, dest_shop_domain, and access_token are required' },
+        { error: validation.error },
         { status: 400 }
       );
     }
+
+    const { name, dest_shop_domain, access_token, dest_location_id, sync_price, sync_categories, create_products, product_status, rules } = validation.data;
 
     const existingInstallation = await InstallationRepo.getByDomain(shop);
     if (!existingInstallation) {
@@ -42,14 +42,11 @@ export async function POST(request: NextRequest) {
     
     const installationId = existingInstallation.id;
 
-    // Parse rules from body if provided (e.g., price_multiplier)
-    const rules = (body?.rules && typeof body.rules === 'object') ? body.rules : null;
-
-    // Parse sync options with defaults
-    const syncPrice = body?.sync_price === true || body?.sync_price === 1 ? 1 : 0;
-    const syncCategories = body?.sync_categories === true || body?.sync_categories === 1 ? 1 : 0;
-    const createProducts = body?.create_products === false || body?.create_products === 0 ? 0 : 1; // Default true
-    const productStatus = body?.product_status === true || body?.product_status === 1 ? 1 : 0; // Default draft (0)
+    // Convert boolean to number (1 = true, 0 = false) - already validated by Zod
+    const syncPrice = sync_price ? 1 : 0;
+    const syncCategories = sync_categories ? 1 : 0;
+    const createProducts = create_products ? 1 : 0;
+    const productStatusValue = product_status ? 1 : 0;
 
     const connId = ulid();
     await ConnectionRepo.insert({
@@ -58,17 +55,17 @@ export async function POST(request: NextRequest) {
       type: 'shopify',
       name,
       status: 'active',
-      dest_shop_domain: destShopDomain,
-      dest_location_id: destLocationId || null,
+      dest_shop_domain: dest_shop_domain,
+      dest_location_id: dest_location_id || null,
       base_url: null,
       consumer_key: null,
       consumer_secret: null,
-      access_token: accessToken,
+      access_token: access_token,
       rules_json: rules ? JSON.stringify(rules) : null,
       sync_price: syncPrice,
       sync_categories: syncCategories,
       create_products: createProducts,
-      product_status: productStatus,
+      product_status: productStatusValue,
       last_synced_at: null
     });
 

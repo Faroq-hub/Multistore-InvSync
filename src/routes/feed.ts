@@ -2,12 +2,26 @@ import { FastifyInstance } from 'fastify';
 import { requireApiKey } from '../middleware/auth';
 import { toXml } from '../services/feedBuilder';
 import { getCurrentFeed, queryItems, refreshFeedNow, getDiscontinuedSkus } from '../services/feedCache';
+import { getHealthStatus } from '../utils/health';
 
 export default async function feedRoutes(app: FastifyInstance) {
   app.get('/health', async (request, reply) => {
-    // Health check endpoint - must be available immediately
-    // Don't check database here to ensure fast response
-    return reply.send({ ok: true, timestamp: new Date().toISOString() });
+    try {
+      // Get detailed health status
+      const health = await getHealthStatus();
+      
+      // Return appropriate status code based on health
+      const statusCode = health.status === 'healthy' ? 200 : health.status === 'degraded' ? 200 : 503;
+      
+      return reply.status(statusCode).send(health);
+    } catch (error: any) {
+      // If health check fails, return unhealthy status
+      return reply.status(503).send({
+        status: 'unhealthy',
+        timestamp: new Date().toISOString(),
+        error: error.message || 'Health check failed'
+      });
+    }
   });
 
   app.get('/v1/feed.json', { preHandler: requireApiKey }, async (req, reply) => {
