@@ -25,6 +25,10 @@ import {
   Text,
   Banner,
   Checkbox,
+  ProgressBar,
+  Spinner,
+  InlineError,
+  Divider,
 } from '@shopify/polaris';
 
 type StatusFilter = 'all' | 'active' | 'paused' | 'disabled';
@@ -314,6 +318,54 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
       setToast({ content: err instanceof Error ? err.message : 'Failed to resume', error: true });
     }
   };
+
+  const handleViewDashboard = async (connectionId: string) => {
+    setSelectedConnectionId(connectionId);
+    setDashboardModalOpen(true);
+    await fetchDashboardData(connectionId);
+  };
+
+  const fetchDashboardData = useCallback(async (connectionId: string) => {
+    try {
+      // Fetch progress, history, and error summary in parallel
+      const [progressRes, historyRes, errorsRes] = await Promise.all([
+        makeRequest(`/api/connections/${connectionId}/progress`).catch(() => ({ isRunning: false })),
+        makeRequest(`/api/connections/${connectionId}/history?limit=10`).catch(() => ({ jobs: [] })),
+        makeRequest(`/api/connections/${connectionId}/errors?hours=24`).catch(() => ({ health: 'healthy', errors: {} })),
+      ]);
+
+      setSyncProgress(progressRes);
+      setSyncHistory(historyRes.jobs || []);
+      setErrorSummary({
+        health: errorsRes.health || 'healthy',
+        errors: errorsRes.errors || {},
+      });
+    } catch (err) {
+      console.error('Error fetching dashboard data:', err);
+    }
+  }, [makeRequest]);
+
+  // Poll for progress updates when dashboard is open and sync is running
+  useEffect(() => {
+    if (!dashboardModalOpen || !selectedConnectionId || !syncProgress?.isRunning) {
+      return;
+    }
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const progressRes = await makeRequest(`/api/connections/${selectedConnectionId}/progress`);
+        setSyncProgress(progressRes);
+        if (!progressRes.isRunning && selectedConnectionId) {
+          // Sync finished, refresh all data
+          await fetchDashboardData(selectedConnectionId);
+        }
+      } catch (err) {
+        console.error('Error polling progress:', err);
+      }
+    }, 2000);
+
+    return () => clearInterval(pollInterval);
+  }, [dashboardModalOpen, selectedConnectionId, syncProgress?.isRunning, makeRequest, fetchDashboardData]);
 
   const handleExportLogs = async (connectionId: string, connectionName: string) => {
     try {
@@ -1051,6 +1103,138 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
             />
           </BlockStack>
         </Modal.Section>
+      </Modal>
+
+      {/* Sync Status Dashboard Modal */}
+      <Modal
+        open={dashboardModalOpen}
+        onClose={() => {
+          setDashboardModalOpen(false);
+          setSelectedConnectionId(null);
+          setSyncProgress(null);
+          setSyncHistory([]);
+          setErrorSummary(null);
+        }}
+        title="Sync Status Dashboard"
+        large
+      >
+        {selectedConnectionId && (
+          <BlockStack gap="400">
+            {/* Progress Section */}
+            <Card>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">Current Sync Progress</Text>
+                {syncProgress?.isRunning ? (
+                  <BlockStack gap="200">
+                    <ProgressBar progress={syncProgress.progress?.percentage || 0} />
+                    <InlineStack gap="400" align="space-between">
+                      <Text as="span" tone="subdued">
+                        {syncProgress.progress?.completed || 0} / {syncProgress.progress?.total || 0} items completed
+                      </Text>
+                      {syncProgress.progress?.failed && syncProgress.progress.failed > 0 && (
+                        <Text as="span" tone="critical">
+                          {syncProgress.progress.failed} failed
+                        </Text>
+                      )}
+                    </InlineStack>
+                    {syncProgress.speed && (
+                      <BlockStack gap="100">
+                        <Text as="span" tone="subdued" variant="bodySm">
+                          Speed: {syncProgress.speed.items_per_minute} items/min
+                        </Text>
+                        {syncProgress.speed.estimated_minutes_remaining && (
+                          <Text as="span" tone="subdued" variant="bodySm">
+                            Estimated time remaining: {syncProgress.speed.estimated_minutes_remaining} minutes
+                          </Text>
+                        )}
+                      </BlockStack>
+                    )}
+                    {syncProgress.started_at && (
+                      <Text as="span" tone="subdued" variant="bodySm">
+                        Started: {new Date(syncProgress.started_at).toLocaleString()}
+                      </Text>
+                    )}
+                  </BlockStack>
+                ) : (
+                  <Text as="p" tone="subdued">No sync in progress</Text>
+                )}
+              </BlockStack>
+            </Card>
+
+            {/* Error Summary Section */}
+            <Card>
+              <BlockStack gap="300">
+                <InlineStack gap="200" align="space-between" blockAlign="center">
+                  <Text as="h2" variant="headingMd">Error Summary (Last 24 Hours)</Text>
+                  {errorSummary && (
+                    <Badge tone={errorSummary.health === 'healthy' ? 'success' : errorSummary.health === 'warning' ? 'warning' : 'critical'}>
+                      {errorSummary.health}
+                    </Badge>
+                  )}
+                </InlineStack>
+                {errorSummary?.errors ? (
+                  <BlockStack gap="200">
+                    <InlineStack gap="400">
+                      <Text as="span">
+                        <strong>Total:</strong> {errorSummary.errors.total || 0}
+                      </Text>
+                      <Text as="span" tone="critical">
+                        <strong>Errors:</strong> {errorSummary.errors.byLevel?.error || 0}
+                      </Text>
+                      <Text as="span" tone="warning">
+                        <strong>Warnings:</strong> {errorSummary.errors.byLevel?.warn || 0}
+                      </Text>
+                      <Text as="span" tone="success">
+                        <strong>Info:</strong> {errorSummary.errors.byLevel?.info || 0}
+                      </Text>
+                    </InlineStack>
+                  </BlockStack>
+                ) : (
+                  <Text as="p" tone="subdued">No errors in the last 24 hours</Text>
+                )}
+              </BlockStack>
+            </Card>
+
+            {/* Sync History Section */}
+            <Card>
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingMd">Recent Sync History</Text>
+                {syncHistory.length > 0 ? (
+                  <BlockStack gap="200">
+                    {syncHistory.map((job: any) => (
+                      <BlockStack key={job.id} gap="100">
+                        <InlineStack gap="200" align="space-between" blockAlign="center">
+                          <InlineStack gap="200">
+                            <Badge tone={
+                              job.state === 'succeeded' ? 'success' :
+                              job.state === 'failed' || job.state === 'dead' ? 'critical' :
+                              job.state === 'running' ? 'info' : 'subdued'
+                            }>
+                              {job.state}
+                            </Badge>
+                            <Text as="span" variant="bodySm">{job.job_type}</Text>
+                          </InlineStack>
+                          <Text as="span" tone="subdued" variant="bodySm">
+                            {job.duration_minutes ? `${job.duration_minutes} min` : 'N/A'}
+                          </Text>
+                        </InlineStack>
+                        {job.last_error && (
+                          <InlineError message={job.last_error} />
+                        )}
+                        <Text as="span" tone="subdued" variant="bodySm">
+                          {new Date(job.created_at).toLocaleString()}
+                        </Text>
+                        <Divider />
+                      </BlockStack>
+                    ))}
+                  </BlockStack>
+                ) : (
+                  <Text as="p" tone="subdued">No sync history available</Text>
+                )}
+              </BlockStack>
+            </Card>
+          </BlockStack>
+        )}
       </Modal>
     </Page>
   );

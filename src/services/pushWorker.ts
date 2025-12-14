@@ -1292,7 +1292,25 @@ export function startPushWorker(log: (m: string) => void) {
         const errorMsg = err?.message || String(err);
         log(`[Push Worker] Job ${job.id} failed: ${errorMsg}`);
         console.error(`[Push Worker] Job ${job.id} failed:`, err);
-        await JobRepo.fail(job.id, errorMsg);
+        
+        // Check if this is a permanent error that should go to dead letter queue immediately
+        const status = err?.status || err?.response?.status;
+        const errorType = categorizeError(status, err);
+        
+        // Get current job to check attempts
+        const currentJob = await JobRepo.get(job.id);
+        const maxAttempts = 3; // Maximum retry attempts before moving to dead letter queue
+        
+        // For permanent errors (401, 403, 400, 404, 422), move to dead letter queue immediately
+        // For transient errors, use normal retry logic with max attempts
+        if (errorType === ErrorType.PERMANENT) {
+          log(`[Push Worker] Job ${job.id} failed with permanent error (${status}) - moving to dead letter queue`);
+          await JobRepo.fail(job.id, errorMsg, 1); // Set maxAttempts to 1 to immediately move to dead
+        } else {
+          // Transient error - use normal retry logic (will move to dead after maxAttempts)
+          await JobRepo.fail(job.id, errorMsg, maxAttempts);
+        }
+        
         // Simple backoff before next iteration after a failure
         await new Promise(r => setTimeout(r, 1000));
       }
