@@ -65,6 +65,8 @@ export async function migratePostgres(): Promise<void> {
     const addColumnStatements = [
       `ALTER TABLE connections ADD COLUMN IF NOT EXISTS sync_price INTEGER NOT NULL DEFAULT 0`,
       `ALTER TABLE connections ADD COLUMN IF NOT EXISTS sync_categories INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE connections ADD COLUMN IF NOT EXISTS sync_tags INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE connections ADD COLUMN IF NOT EXISTS sync_collections INTEGER NOT NULL DEFAULT 0`,
       `ALTER TABLE connections ADD COLUMN IF NOT EXISTS create_products INTEGER NOT NULL DEFAULT 1`,
       `ALTER TABLE connections ADD COLUMN IF NOT EXISTS product_status INTEGER NOT NULL DEFAULT 0`,
     ];
@@ -113,6 +115,16 @@ export async function migratePostgres(): Promise<void> {
         updated_at TEXT NOT NULL,
         FOREIGN KEY (installation_id) REFERENCES installations(id) ON DELETE CASCADE
       )`,
+      `CREATE TABLE IF NOT EXISTS connection_templates (
+        id TEXT PRIMARY KEY,
+        installation_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('shopify','woocommerce')),
+        config_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (installation_id) REFERENCES installations(id) ON DELETE CASCADE
+      )`,
       `CREATE TABLE IF NOT EXISTS jobs (
         id TEXT PRIMARY KEY,
         connection_id TEXT NOT NULL,
@@ -153,6 +165,8 @@ export async function migratePostgres(): Promise<void> {
         FOREIGN KEY (installation_id) REFERENCES installations(id) ON DELETE CASCADE
       )`,
       `CREATE INDEX IF NOT EXISTS idx_connections_installation ON connections(installation_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_templates_installation ON connection_templates(installation_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_templates_type ON connection_templates(type)`,
       `CREATE INDEX IF NOT EXISTS idx_jobs_state ON jobs(state)`,
       `CREATE INDEX IF NOT EXISTS idx_jobs_connection ON jobs(connection_id)`,
       `CREATE INDEX IF NOT EXISTS idx_job_items_job ON job_items(job_id)`,

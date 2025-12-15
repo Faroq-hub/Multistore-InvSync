@@ -104,6 +104,11 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
     errors: any;
   } | null>(null);
   const [dashboardModalOpen, setDashboardModalOpen] = useState(false);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [templatesModalOpen, setTemplatesModalOpen] = useState(false);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<any>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
   const makeRequest = useCallback(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       let token: string;
@@ -427,6 +432,72 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
     }
   };
 
+  const fetchTemplates = useCallback(async () => {
+    try {
+      const data = await makeRequest('/api/connections/templates');
+      setTemplates(data.templates || []);
+    } catch (err) {
+      console.error('Error fetching templates:', err);
+      setToast({ content: 'Failed to load templates', error: true });
+    }
+  }, [makeRequest]);
+
+  const handleCreateTemplate = async (connectionId: string, templateName: string) => {
+    try {
+      await makeRequest('/api/connections/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connection_id: connectionId, name: templateName }),
+      });
+      setToast({ content: 'Template created successfully' });
+      fetchTemplates();
+    } catch (err) {
+      setToast({ content: err instanceof Error ? err.message : 'Failed to create template', error: true });
+    }
+  };
+
+  const handleDeleteTemplate = async (templateId: string) => {
+    try {
+      await makeRequest(`/api/connections/templates/${templateId}`, { method: 'DELETE' });
+      setToast({ content: 'Template deleted successfully' });
+      fetchTemplates();
+    } catch (err) {
+      setToast({ content: err instanceof Error ? err.message : 'Failed to delete template', error: true });
+    }
+  };
+
+  const handleUseTemplate = async (templateId: string, connectionName: string, accessToken?: string, consumerSecret?: string) => {
+    try {
+      const body: any = { connection_name: connectionName };
+      if (accessToken) body.access_token = accessToken;
+      if (consumerSecret) body.consumer_secret = consumerSecret;
+      
+      const data = await makeRequest(`/api/connections/templates/${templateId}/use`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      setToast({ content: 'Connection created from template successfully' });
+      setTemplatesModalOpen(false);
+      fetchConnections();
+    } catch (err) {
+      setToast({ content: err instanceof Error ? err.message : 'Failed to create connection from template', error: true });
+    }
+  };
+
+  const handlePreviewSync = async (connectionId: string) => {
+    try {
+      setLoadingPreview(true);
+      const data = await makeRequest(`/api/connections/${connectionId}/preview?limit=50`);
+      setPreviewData(data.preview);
+      setPreviewModalOpen(true);
+    } catch (err) {
+      setToast({ content: err instanceof Error ? err.message : 'Failed to generate preview', error: true });
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
   const handleEditClick = async (connection: Connection) => {
     try {
       // Fetch full connection details
@@ -615,6 +686,32 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
       >
         Export Logs
       </Button>
+      <Button 
+        size="slim" 
+        onClick={() => handleViewDashboard(conn.id)}
+        disabled={loading}
+      >
+        Dashboard
+      </Button>
+      <Button 
+        size="slim" 
+        onClick={() => handlePreviewSync(conn.id)}
+        disabled={loading || loadingPreview}
+      >
+        Preview
+      </Button>
+      <Button 
+        size="slim" 
+        onClick={() => {
+          const name = prompt('Enter template name:');
+          if (name) {
+            handleCreateTemplate(conn.id, name);
+          }
+        }}
+        disabled={loading}
+      >
+        Save as Template
+      </Button>
       <Button size="slim" tone="critical" onClick={() => handleDeleteClick(conn)}>
         Delete
       </Button>
@@ -694,16 +791,22 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
         disabled: installationStatus?.needsReinstall === true,
       }}
       secondaryActions={
-        connections.length > 0
-          ? [
-              {
-                content: 'Delete All Connections',
-                destructive: true,
-                onAction: () => setDeleteAllModalOpen(true),
-                disabled: installationStatus?.needsReinstall === true,
-              },
-            ]
-          : undefined
+        [
+          ...(connections.length > 0 ? [{
+            content: 'Templates',
+            onAction: () => {
+              setTemplatesModalOpen(true);
+              fetchTemplates();
+            },
+            disabled: installationStatus?.needsReinstall === true,
+          }] : []),
+          ...(connections.length > 0 ? [{
+            content: 'Delete All Connections',
+            destructive: true,
+            onAction: () => setDeleteAllModalOpen(true),
+            disabled: installationStatus?.needsReinstall === true,
+          }] : []),
+        ]
       }
     >
       {toastMarkup}
@@ -1252,6 +1355,203 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
             </Card>
           </BlockStack>
         )}
+      </Modal>
+
+      {/* Templates Modal */}
+      <Modal
+        open={templatesModalOpen}
+        onClose={() => setTemplatesModalOpen(false)}
+        title="Connection Templates"
+        primaryAction={null}
+        secondaryActions={[
+          {
+            content: 'Close',
+            onAction: () => setTemplatesModalOpen(false),
+          },
+        ]}
+      >
+        <Modal.Section>
+          <BlockStack gap="400">
+            <Text as="p" tone="subdued">
+              Save connection configurations as templates to quickly create new connections with the same settings.
+            </Text>
+            {templates.length === 0 ? (
+              <EmptyState
+                heading="No templates yet"
+                image="https://cdn.shopify.com/s/files/1/0757/9955/files/empty-state.svg"
+              >
+                <p>Create a template from an existing connection to get started.</p>
+              </EmptyState>
+            ) : (
+              <BlockStack gap="300">
+                {templates.map((template: any) => (
+                  <Card key={template.id}>
+                    <BlockStack gap="200">
+                      <InlineStack gap="200" align="space-between" blockAlign="center">
+                        <BlockStack gap="050">
+                          <Text as="h3" variant="headingMd">{template.name}</Text>
+                          <Text as="p" tone="subdued" variant="bodySm">
+                            Type: {template.type} • Created: {new Date(template.created_at).toLocaleDateString()}
+                          </Text>
+                        </BlockStack>
+                        <InlineStack gap="200">
+                          <Button
+                            size="slim"
+                            onClick={() => {
+                              const name = prompt('Enter connection name:');
+                              if (name) {
+                                if (template.type === 'shopify') {
+                                  const token = prompt('Enter access token:');
+                                  if (token) {
+                                    handleUseTemplate(template.id, name, token);
+                                  }
+                                } else {
+                                  const secret = prompt('Enter consumer secret:');
+                                  if (secret) {
+                                    handleUseTemplate(template.id, name, undefined, secret);
+                                  }
+                                }
+                              }
+                            }}
+                          >
+                            Use Template
+                          </Button>
+                          <Button
+                            size="slim"
+                            tone="critical"
+                            onClick={() => {
+                              if (confirm(`Delete template "${template.name}"?`)) {
+                                handleDeleteTemplate(template.id);
+                              }
+                            }}
+                          >
+                            Delete
+                          </Button>
+                        </InlineStack>
+                      </InlineStack>
+                    </BlockStack>
+                  </Card>
+                ))}
+              </BlockStack>
+            )}
+            <Divider />
+            <Text as="h3" variant="headingMd">Create Template from Connection</Text>
+            <Select
+              label="Select Connection"
+              options={[
+                { label: 'Select a connection...', value: '' },
+                ...connections.map((conn) => ({ label: conn.name, value: conn.id })),
+              ]}
+              onChange={(value) => {
+                if (value) {
+                  const name = prompt('Enter template name:');
+                  if (name) {
+                    handleCreateTemplate(value, name);
+                  }
+                }
+              }}
+              value=""
+            />
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
+
+      {/* Sync Preview Modal */}
+      <Modal
+        open={previewModalOpen}
+        onClose={() => {
+          setPreviewModalOpen(false);
+          setPreviewData(null);
+        }}
+        title="Sync Preview"
+        primaryAction={null}
+        secondaryActions={[
+          {
+            content: 'Close',
+            onAction: () => {
+              setPreviewModalOpen(false);
+              setPreviewData(null);
+            },
+          },
+        ]}
+      >
+        <Modal.Section>
+          {loadingPreview ? (
+            <BlockStack gap="200">
+              <Spinner accessibilityLabel="Loading preview" size="small" />
+              <Text as="p" tone="subdued">Generating preview...</Text>
+            </BlockStack>
+          ) : previewData ? (
+            <BlockStack gap="400">
+              <Card>
+                <BlockStack gap="200">
+                  <Text as="h3" variant="headingMd">Summary</Text>
+                  <InlineStack gap="400">
+                    <BlockStack gap="050">
+                      <Text as="span" tone="subdued" variant="bodySm">Total Items</Text>
+                      <Text as="span" variant="headingMd">{previewData.total_items || 0}</Text>
+                    </BlockStack>
+                    <BlockStack gap="050">
+                      <Text as="span" tone="subdued" variant="bodySm">To Sync</Text>
+                      <Text as="span" variant="headingMd">{previewData.items_to_sync || 0}</Text>
+                    </BlockStack>
+                    <BlockStack gap="050">
+                      <Text as="span" tone="subdued" variant="bodySm">To Create</Text>
+                      <Text as="span" variant="headingMd" tone="success">{previewData.items_to_create || 0}</Text>
+                    </BlockStack>
+                    <BlockStack gap="050">
+                      <Text as="span" tone="subdued" variant="bodySm">To Update</Text>
+                      <Text as="span" variant="headingMd">{previewData.items_to_update || 0}</Text>
+                    </BlockStack>
+                    <BlockStack gap="050">
+                      <Text as="span" tone="subdued" variant="bodySm">To Skip</Text>
+                      <Text as="span" variant="headingMd" tone="critical">{previewData.items_to_skip || 0}</Text>
+                    </BlockStack>
+                  </InlineStack>
+                </BlockStack>
+              </Card>
+              {previewData.preview_items && previewData.preview_items.length > 0 && (
+                <Card>
+                  <BlockStack gap="200">
+                    <Text as="h3" variant="headingMd">Preview Items (showing first {previewData.preview_items.length})</Text>
+                    <BlockStack gap="200">
+                      {previewData.preview_items.map((item: any, index: number) => (
+                        <Card key={index}>
+                          <BlockStack gap="100">
+                            <InlineStack gap="200" align="space-between" blockAlign="center">
+                              <BlockStack gap="050">
+                                <Text as="span" fontWeight="semibold">{item.title}</Text>
+                                <Text as="span" tone="subdued" variant="bodySm">SKU: {item.sku}</Text>
+                              </BlockStack>
+                              <Badge tone={item.action === 'create' ? 'success' : item.action === 'update' ? 'info' : 'critical'}>
+                                {item.action}
+                              </Badge>
+                            </InlineStack>
+                            {item.reason && (
+                              <Text as="span" tone="subdued" variant="bodySm">Reason: {item.reason}</Text>
+                            )}
+                            {(item.price !== undefined || item.stock !== undefined) && (
+                              <InlineStack gap="200">
+                                {item.price !== undefined && (
+                                  <Text as="span" variant="bodySm">Price: ${item.price.toFixed(2)}</Text>
+                                )}
+                                {item.stock !== undefined && (
+                                  <Text as="span" variant="bodySm">Stock: {item.stock}</Text>
+                                )}
+                              </InlineStack>
+                            )}
+                          </BlockStack>
+                        </Card>
+                      ))}
+                    </BlockStack>
+                  </BlockStack>
+                </Card>
+              )}
+            </BlockStack>
+          ) : (
+            <Text as="p" tone="subdued">No preview data available</Text>
+          )}
+        </Modal.Section>
       </Modal>
     </Page>
   );

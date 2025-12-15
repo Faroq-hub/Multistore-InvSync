@@ -113,6 +113,38 @@ export const ExportLogsQuerySchema = z.object({
   limit: z.string().optional().transform((val) => parseQueryNumber(val, 10000, 1, 50000)),
 });
 
+// Template schemas
+export const TemplateConfigSchema = z.object({
+  name: z.string().min(1).max(255),
+  dest_shop_domain: z.string().nullable().optional(),
+  dest_location_id: z.string().nullable().optional(),
+  base_url: z.string().nullable().optional(),
+  consumer_key: z.string().nullable().optional(),
+  sync_price: z.boolean(),
+  sync_categories: z.boolean(),
+  sync_tags: z.boolean(),
+  sync_collections: z.boolean(),
+  create_products: z.boolean(),
+  product_status: z.boolean(),
+  rules: z.record(z.string(), z.unknown()).nullable().optional(),
+});
+
+export const CreateTemplateSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(255, 'Name must be 255 characters or less').trim(),
+  type: z.enum(['shopify', 'woocommerce']),
+  config: TemplateConfigSchema,
+});
+
+export const UpdateTemplateSchema = z.object({
+  name: z.string().min(1).max(255).trim().optional(),
+  config: TemplateConfigSchema.optional(),
+}).partial();
+
+export const CreateConnectionFromTemplateSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(255, 'Name must be 255 characters or less').trim(),
+  overrides: TemplateConfigSchema.partial().optional(),
+});
+
 // Helper function to validate and parse request body
 export function validateBody<T>(schema: z.ZodSchema<T>, data: unknown): { success: true; data: T } | { success: false; error: string } {
   try {

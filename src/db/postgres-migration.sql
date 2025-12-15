@@ -56,6 +56,20 @@ CREATE TABLE IF NOT EXISTS connections (
 CREATE INDEX IF NOT EXISTS idx_connections_installation ON connections(installation_id);
 CREATE INDEX IF NOT EXISTS idx_connections_status ON connections(status);
 
+-- Connection templates for saving/loading configurations
+CREATE TABLE IF NOT EXISTS connection_templates (
+  id TEXT PRIMARY KEY,
+  installation_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('shopify','woocommerce')),
+  config_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (installation_id) REFERENCES installations(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_templates_installation ON connection_templates(installation_id);
+CREATE INDEX IF NOT EXISTS idx_templates_type ON connection_templates(type);
+
 -- Jobs for pushing updates to destinations
 CREATE TABLE IF NOT EXISTS jobs (
   id TEXT PRIMARY KEY,

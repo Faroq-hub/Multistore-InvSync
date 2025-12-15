@@ -117,6 +117,20 @@ export async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_connections_installation ON connections(installation_id);
     CREATE INDEX IF NOT EXISTS idx_connections_status ON connections(status);
 
+    -- Connection templates for saving/loading configurations
+    CREATE TABLE IF NOT EXISTS connection_templates (
+      id TEXT PRIMARY KEY,
+      installation_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK (type IN ('shopify','woocommerce')),
+      config_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (installation_id) REFERENCES installations(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_templates_installation ON connection_templates(installation_id);
+    CREATE INDEX IF NOT EXISTS idx_templates_type ON connection_templates(type);
+
     -- Jobs for pushing updates to destinations
     CREATE TABLE IF NOT EXISTS jobs (
       id TEXT PRIMARY KEY,
@@ -831,5 +845,79 @@ export const AuditRepo = {
     `);
     const result = stmt.all({ connection_id, limit });
     return (result instanceof Promise ? await result : result) as Array<{ ts: string; level: string; sku: string | null; message: string }>;
+  }
+};
+
+export type ConnectionTemplateRow = {
+  id: string;
+  installation_id: string;
+  name: string;
+  type: 'shopify' | 'woocommerce';
+  config_json: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export const ConnectionTemplateRepo = {
+  async insert(template: Omit<ConnectionTemplateRow, 'created_at' | 'updated_at'>) {
+    await ensureMigration();
+    const now = new Date().toISOString();
+    const stmt = getDb().prepare(`
+      INSERT INTO connection_templates (id, installation_id, name, type, config_json, created_at, updated_at)
+      VALUES (@id, @installation_id, @name, @type, @config_json, @created_at, @updated_at)
+    `);
+    const result = stmt.run({ ...template, created_at: now, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
+  },
+  async get(id: string): Promise<ConnectionTemplateRow | undefined> {
+    await ensureMigration();
+    const stmt = getDb().prepare(`SELECT * FROM connection_templates WHERE id=@id`);
+    const result = stmt.get({ id });
+    return (result instanceof Promise ? await result : result) as ConnectionTemplateRow | undefined;
+  },
+  async list(installation_id: string): Promise<ConnectionTemplateRow[]> {
+    await ensureMigration();
+    const stmt = getDb().prepare(`
+      SELECT * FROM connection_templates 
+      WHERE installation_id=@installation_id 
+      ORDER BY created_at DESC
+    `);
+    const result = stmt.all({ installation_id });
+    return (result instanceof Promise ? await result : result) as ConnectionTemplateRow[];
+  },
+  async update(id: string, updates: { name?: string; config_json?: string }) {
+    await ensureMigration();
+    const now = new Date().toISOString();
+    const updateFields: string[] = ['updated_at=@updated_at'];
+    const params: any = { id, updated_at: now };
+    
+    if (updates.name !== undefined) {
+      updateFields.push('name=@name');
+      params.name = updates.name;
+    }
+    if (updates.config_json !== undefined) {
+      updateFields.push('config_json=@config_json');
+      params.config_json = updates.config_json;
+    }
+    
+    const stmt = getDb().prepare(`
+      UPDATE connection_templates 
+      SET ${updateFields.join(', ')} 
+      WHERE id=@id
+    `);
+    const result = stmt.run(params);
+    if (result instanceof Promise) {
+      await result;
+    }
+  },
+  async delete(id: string) {
+    await ensureMigration();
+    const stmt = getDb().prepare(`DELETE FROM connection_templates WHERE id=@id`);
+    const result = stmt.run({ id });
+    if (result instanceof Promise) {
+      await result;
+    }
   }
 };
