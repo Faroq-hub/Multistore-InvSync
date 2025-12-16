@@ -5,6 +5,8 @@ import { deleteTemplate, createConnectionFromTemplate } from '../../../../../src
 import { validateBody } from '../../../../../src/validation/schemas';
 import { z } from 'zod';
 
+export const runtime = 'nodejs';
+
 const UseTemplateSchema = z.object({
   connection_name: z.string().min(1).max(255),
   access_token: z.string().optional(),

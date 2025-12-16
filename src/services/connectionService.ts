@@ -60,7 +60,7 @@ export async function createShopifyConnection(params: CreateShopifyConnectionPar
   
   // Encrypt access token
   const { encryptSecret } = await import('../utils/secrets');
-  const encryptedToken = encryptSecret(params.access_token);
+  const encryptedToken = await encryptSecret(params.access_token);
   
   await ConnectionRepo.insert({
     id: connId,
@@ -99,7 +99,7 @@ export async function createWooCommerceConnection(params: CreateWooCommerceConne
   
   // Encrypt consumer secret
   const { encryptSecret } = await import('../utils/secrets');
-  const encryptedSecret = encryptSecret(params.consumer_secret);
+  const encryptedSecret = await encryptSecret(params.consumer_secret);
   
   await ConnectionRepo.insert({
     id: connId,
@@ -158,7 +158,7 @@ export async function updateConnection(
     const connection = await ConnectionRepo.get(connectionId);
     if (connection && connection.type === 'shopify') {
       const { encryptSecret } = await import('../utils/secrets');
-      const encryptedToken = encryptSecret(params.access_token);
+      const encryptedToken = await encryptSecret(params.access_token);
       await ConnectionRepo.updateAccessToken(connectionId, encryptedToken || params.access_token);
     }
   }

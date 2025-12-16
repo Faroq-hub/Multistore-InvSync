@@ -5,6 +5,8 @@ import { listTemplates, createTemplateFromConnection, deleteTemplate } from '../
 import { validateBody, validateQuery } from '../../../../src/validation/schemas';
 import { z } from 'zod';
 
+export const runtime = 'nodejs';
+
 const CreateTemplateSchema = z.object({
   connection_id: z.string().min(1),
   name: z.string().min(1).max(255),

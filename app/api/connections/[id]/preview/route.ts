@@ -5,6 +5,8 @@ import { generateSyncPreview } from '../../../../../src/services/syncPreview';
 import { validateQuery } from '../../../../../src/validation/schemas';
 import { z } from 'zod';
 
+export const runtime = 'nodejs';
+
 const PreviewQuerySchema = z.object({
   limit: z.string().optional().transform((val) => (val ? parseInt(val, 10) : 50)),
 });
