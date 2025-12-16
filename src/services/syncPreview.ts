@@ -67,8 +67,14 @@ export async function generateSyncPreview(
     throw new Error('Connection not found');
   }
 
-  // Get source items
-  const allItems = await getSourceItems();
+  // Get source items (may be empty if source shop credentials not configured)
+  let allItems: CatalogItem[] = [];
+  try {
+    allItems = await getSourceItems();
+  } catch (error) {
+    console.warn('[SyncPreview] Failed to fetch source items:', error);
+    // Continue with empty items - preview will show no items to sync
+  }
   
   // Apply rules to determine what will sync
   const itemsToSync: CatalogItem[] = [];

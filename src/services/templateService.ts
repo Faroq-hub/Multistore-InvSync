@@ -114,11 +114,14 @@ export async function createConnectionFromTemplate(
     if (!config.dest_shop_domain) {
       throw new Error('dest_shop_domain is required for Shopify connections');
     }
+    if (!overrides?.access_token) {
+      throw new Error('access_token is required when creating a connection from a template');
+    }
     return await createShopifyConnection({
       installation_id: template.installation_id,
       name: config.name,
       dest_shop_domain: config.dest_shop_domain,
-      access_token: '', // User must provide access token
+      access_token: overrides.access_token,
       dest_location_id: config.dest_location_id || null,
       sync_price: config.sync_price,
       sync_categories: config.sync_categories,
@@ -132,12 +135,15 @@ export async function createConnectionFromTemplate(
     if (!config.base_url || !config.consumer_key) {
       throw new Error('base_url and consumer_key are required for WooCommerce connections');
     }
+    if (!overrides?.consumer_secret) {
+      throw new Error('consumer_secret is required when creating a connection from a template');
+    }
     return await createWooCommerceConnection({
       installation_id: template.installation_id,
       name: config.name,
       base_url: config.base_url,
       consumer_key: config.consumer_key,
-      consumer_secret: '', // User must provide consumer secret
+      consumer_secret: overrides.consumer_secret,
       sync_price: config.sync_price,
       sync_categories: config.sync_categories,
       sync_tags: config.sync_tags,
