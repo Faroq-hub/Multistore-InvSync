@@ -110,6 +110,7 @@ export async function migrate() {
       sync_collections INTEGER NOT NULL DEFAULT 0, -- 1 = sync collections, 0 = don't sync collections
       create_products INTEGER NOT NULL DEFAULT 1, -- 1 = create products if not exist, 0 = skip
       product_status INTEGER NOT NULL DEFAULT 0, -- 1 = active, 0 = draft
+      last_synced_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (installation_id) REFERENCES installations(id)
@@ -224,6 +225,7 @@ async function runColumnMigrations() {
     `ALTER TABLE connections ADD COLUMN sync_collections INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE connections ADD COLUMN create_products INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE connections ADD COLUMN product_status INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE connections ADD COLUMN last_synced_at TEXT`,
   ];
   
   for (const sql of columnMigrations) {
