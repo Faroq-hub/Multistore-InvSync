@@ -1362,7 +1362,6 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
         open={templatesModalOpen}
         onClose={() => setTemplatesModalOpen(false)}
         title="Connection Templates"
-        primaryAction={null}
         secondaryActions={[
           {
             content: 'Close',
@@ -1464,7 +1463,6 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
           setPreviewData(null);
         }}
         title="Sync Preview"
-        primaryAction={null}
         secondaryActions={[
           {
             content: 'Close',
