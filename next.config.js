@@ -1,6 +1,11 @@
 /** @type {import('next').NextConfig} */
+const path = require('path');
 const nextConfig = {
   reactStrictMode: true,
+  // Fix "multiple lockfiles" / wrong workspace root when building (e.g. on Railway)
+  turbopack: {
+    root: path.join(__dirname, '.'),
+  },
   // output: 'standalone', // Disabled for local PM2 - use 'next start' instead
   env: {
     SHOPIFY_API_KEY: process.env.SHOPIFY_API_KEY,

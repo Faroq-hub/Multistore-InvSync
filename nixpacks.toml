@@ -1,0 +1,5 @@
+# Nixpacks configuration for Railway deployment
+# Ensures Node 20+ (required by package.json engines >=20.10.0)
+
+[variables]
+NIXPACKS_NODE_VERSION = "20"
