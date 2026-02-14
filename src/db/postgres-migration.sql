@@ -155,6 +155,51 @@ CREATE TABLE IF NOT EXISTS shopify_webhooks (
 );
 CREATE INDEX IF NOT EXISTS idx_shopify_webhooks_installation ON shopify_webhooks(installation_id);
 
+-- Connection invites (wholesaler invites retailer)
+CREATE TABLE IF NOT EXISTS connection_invites (
+  id TEXT PRIMARY KEY,
+  installation_id TEXT NOT NULL,
+  token TEXT NOT NULL UNIQUE,
+  retailer_email TEXT,
+  retailer_shop_domain TEXT NOT NULL,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','accepted','expired','cancelled')) DEFAULT 'pending',
+  connection_id TEXT,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (installation_id) REFERENCES installations(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_connection_invites_token ON connection_invites(token);
+CREATE INDEX IF NOT EXISTS idx_connection_invites_installation ON connection_invites(installation_id);
+
+-- Pending retailer connections (after OAuth, before location selection)
+CREATE TABLE IF NOT EXISTS connection_pending (
+  id TEXT PRIMARY KEY,
+  token TEXT NOT NULL UNIQUE,
+  invite_id TEXT NOT NULL,
+  dest_shop_domain TEXT NOT NULL,
+  access_token TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_connection_pending_token ON connection_pending(token);
+
+-- Add invite_id and location_id to shopify_oauth_states for retailer invite flow
+DO $$ 
+BEGIN
+  ALTER TABLE shopify_oauth_states ADD COLUMN invite_id TEXT;
+EXCEPTION
+  WHEN duplicate_column THEN NULL;
+END $$;
+
+DO $$ 
+BEGIN
+  ALTER TABLE shopify_oauth_states ADD COLUMN location_id TEXT;
+EXCEPTION
+  WHEN duplicate_column THEN NULL;
+END $$;
+
 -- Migration: Add sync option columns to connections table (for existing databases)
 -- These will fail silently if columns already exist
 DO $$ 

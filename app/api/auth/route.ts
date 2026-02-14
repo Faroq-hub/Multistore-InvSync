@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { shopify } from '../../../src/shopify/shopify';
-import { ShopifyOAuthStateRepo } from '../../../src/db';
+import { ShopifyOAuthStateRepo, ConnectionInviteRepo } from '../../../src/db';
 
 export const runtime = 'nodejs';
 
@@ -13,6 +13,8 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const shop = searchParams.get('shop');
   const host = searchParams.get('host');
+  const invite = searchParams.get('invite'); // Token for retailer invite flow
+  const location_id = searchParams.get('location_id'); // Optional, for retailer invite flow
 
   if (!shop) {
     return NextResponse.json({ error: 'Missing shop parameter' }, { status: 400 });
@@ -33,10 +35,22 @@ export async function GET(request: NextRequest) {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 5 * 60 * 1000);
 
+  // Resolve invite token to invite_id (for retailer invite flow)
+  // Retailer can choose/change their shop domain - we no longer require it to match the invite
+  let inviteId: string | null = null;
+  if (invite) {
+    const inviteRow = await ConnectionInviteRepo.getByToken(invite);
+    if (inviteRow && inviteRow.status === 'pending' && inviteRow.expires_at > now.toISOString()) {
+      inviteId = inviteRow.id;
+    }
+  }
+
   await ShopifyOAuthStateRepo.purgeExpired(now.toISOString());
   await ShopifyOAuthStateRepo.insert({
     state,
     shop_domain: sanitizedShop,
+    invite_id: inviteId,
+    location_id: location_id?.trim() || null,
     created_at: now.toISOString(),
     expires_at: expiresAt.toISOString()
   });

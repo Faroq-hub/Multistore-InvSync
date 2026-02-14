@@ -191,10 +191,44 @@ export async function migrate() {
     CREATE TABLE IF NOT EXISTS shopify_oauth_states (
       state TEXT PRIMARY KEY,
       shop_domain TEXT NOT NULL,
+      invite_id TEXT,
+      location_id TEXT,
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_shopify_oauth_states_expires ON shopify_oauth_states(expires_at);
+
+    -- Connection invites (wholesaler invites retailer to connect)
+    CREATE TABLE IF NOT EXISTS connection_invites (
+      id TEXT PRIMARY KEY,
+      installation_id TEXT NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      retailer_email TEXT,
+      retailer_shop_domain TEXT NOT NULL,
+      name TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending','accepted','expired','cancelled')) DEFAULT 'pending',
+      connection_id TEXT,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (installation_id) REFERENCES installations(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_connection_invites_token ON connection_invites(token);
+    CREATE INDEX IF NOT EXISTS idx_connection_invites_installation ON connection_invites(installation_id);
+
+    -- Pending retailer connections (after OAuth, before location selection)
+    CREATE TABLE IF NOT EXISTS connection_pending (
+      id TEXT PRIMARY KEY,
+      token TEXT NOT NULL UNIQUE,
+      invite_id TEXT NOT NULL,
+      dest_shop_domain TEXT NOT NULL,
+      access_token TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      FOREIGN KEY (invite_id) REFERENCES connection_invites(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_connection_pending_token ON connection_pending(token);
+    CREATE INDEX IF NOT EXISTS idx_connection_pending_expires ON connection_pending(expires_at);
 
     -- Shopify webhooks (optional local tracking)
     CREATE TABLE IF NOT EXISTS shopify_webhooks (
@@ -226,6 +260,9 @@ async function runColumnMigrations() {
     `ALTER TABLE connections ADD COLUMN create_products INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE connections ADD COLUMN product_status INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE connections ADD COLUMN last_synced_at TEXT`,
+    `ALTER TABLE shopify_oauth_states ADD COLUMN invite_id TEXT`,
+    `ALTER TABLE shopify_oauth_states ADD COLUMN location_id TEXT`,
+    `CREATE TABLE IF NOT EXISTS connection_pending (id TEXT PRIMARY KEY, token TEXT NOT NULL UNIQUE, invite_id TEXT NOT NULL, dest_shop_domain TEXT NOT NULL, access_token TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL)`,
   ];
   
   for (const sql of columnMigrations) {
@@ -383,6 +420,8 @@ export const InstallationRepo = {
 export type ShopifyOAuthStateRow = {
   state: string;
   shop_domain: string;
+  invite_id?: string | null;
+  location_id?: string | null;
   created_at: string;
   expires_at: string;
 };
@@ -394,21 +433,23 @@ export const ShopifyOAuthStateRepo = {
     let sql: string;
     if (isPostgres) {
       sql = `
-        INSERT INTO shopify_oauth_states (state, shop_domain, created_at, expires_at)
-        VALUES (@state, @shop_domain, @created_at, @expires_at)
+        INSERT INTO shopify_oauth_states (state, shop_domain, invite_id, location_id, created_at, expires_at)
+        VALUES (@state, @shop_domain, @invite_id, @location_id, @created_at, @expires_at)
         ON CONFLICT (state) DO UPDATE SET
           shop_domain = @shop_domain,
+          invite_id = @invite_id,
+          location_id = @location_id,
           created_at = @created_at,
           expires_at = @expires_at
       `;
     } else {
       sql = `
-        INSERT OR REPLACE INTO shopify_oauth_states (state, shop_domain, created_at, expires_at)
-        VALUES (@state, @shop_domain, @created_at, @expires_at)
+        INSERT OR REPLACE INTO shopify_oauth_states (state, shop_domain, invite_id, location_id, created_at, expires_at)
+        VALUES (@state, @shop_domain, @invite_id, @location_id, @created_at, @expires_at)
       `;
     }
     const stmt = getDb().prepare(sql);
-    const result = stmt.run(row);
+    const result = stmt.run({ ...row, invite_id: row.invite_id ?? null, location_id: row.location_id ?? null });
     if (result instanceof Promise) {
       await result;
     }
@@ -858,6 +899,135 @@ export type ConnectionTemplateRow = {
   config_json: string;
   created_at: string;
   updated_at: string;
+};
+
+export type ConnectionInviteRow = {
+  id: string;
+  installation_id: string;
+  token: string;
+  retailer_email: string | null;
+  retailer_shop_domain: string;
+  name: string;
+  status: 'pending' | 'accepted' | 'expired' | 'cancelled';
+  connection_id: string | null;
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export const ConnectionInviteRepo = {
+  async insert(invite: Omit<ConnectionInviteRow, 'created_at' | 'updated_at'>) {
+    await ensureMigration();
+    const now = new Date().toISOString();
+    const stmt = getDb().prepare(`
+      INSERT INTO connection_invites (id, installation_id, token, retailer_email, retailer_shop_domain, name, status, connection_id, expires_at, created_at, updated_at)
+      VALUES (@id, @installation_id, @token, @retailer_email, @retailer_shop_domain, @name, @status, @connection_id, @expires_at, @created_at, @updated_at)
+    `);
+    const result = stmt.run({ ...invite, connection_id: invite.connection_id ?? null, created_at: now, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
+  },
+  async getByToken(token: string): Promise<ConnectionInviteRow | undefined> {
+    await ensureMigration();
+    const stmt = getDb().prepare(`SELECT * FROM connection_invites WHERE token=@token`);
+    const result = stmt.get({ token });
+    return (result instanceof Promise ? await result : result) as ConnectionInviteRow | undefined;
+  },
+  async get(id: string): Promise<ConnectionInviteRow | undefined> {
+    await ensureMigration();
+    const stmt = getDb().prepare(`SELECT * FROM connection_invites WHERE id=@id`);
+    const result = stmt.get({ id });
+    return (result instanceof Promise ? await result : result) as ConnectionInviteRow | undefined;
+  },
+  async list(installation_id: string): Promise<ConnectionInviteRow[]> {
+    await ensureMigration();
+    const stmt = getDb().prepare(`SELECT * FROM connection_invites WHERE installation_id=@installation_id ORDER BY created_at DESC`);
+    const result = stmt.all({ installation_id });
+    return (result instanceof Promise ? await result : result) as ConnectionInviteRow[];
+  },
+  async markAccepted(id: string, connection_id: string) {
+    const now = new Date().toISOString();
+    const stmt = getDb().prepare(`UPDATE connection_invites SET status='accepted', connection_id=@connection_id, updated_at=@updated_at WHERE id=@id`);
+    const result = stmt.run({ id, connection_id, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
+  },
+  async markExpired(id: string) {
+    const now = new Date().toISOString();
+    const stmt = getDb().prepare(`UPDATE connection_invites SET status='expired', updated_at=@updated_at WHERE id=@id`);
+    const result = stmt.run({ id, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
+  },
+  async cancel(id: string) {
+    const now = new Date().toISOString();
+    const stmt = getDb().prepare(`UPDATE connection_invites SET status='cancelled', updated_at=@updated_at WHERE id=@id`);
+    const result = stmt.run({ id, updated_at: now });
+    if (result instanceof Promise) {
+      await result;
+    }
+  },
+};
+
+export type ConnectionPendingRow = {
+  id: string;
+  token: string;
+  invite_id: string;
+  dest_shop_domain: string;
+  access_token: string;
+  created_at: string;
+  expires_at: string;
+};
+
+export const ConnectionPendingRepo = {
+  async insert(pending: Omit<ConnectionPendingRow, 'created_at' | 'expires_at'>) {
+    await ensureMigration();
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 min
+    const stmt = getDb().prepare(`
+      INSERT INTO connection_pending (id, token, invite_id, dest_shop_domain, access_token, created_at, expires_at)
+      VALUES (@id, @token, @invite_id, @dest_shop_domain, @access_token, @created_at, @expires_at)
+    `);
+    const result = stmt.run({ ...pending, created_at: now, expires_at: expiresAt });
+    if (result instanceof Promise) {
+      await result;
+    }
+  },
+  async getByToken(token: string): Promise<ConnectionPendingRow | undefined> {
+    await ensureMigration();
+    const now = new Date().toISOString();
+    const stmt = getDb().prepare(`SELECT * FROM connection_pending WHERE token=@token AND expires_at > @now`);
+    const result = stmt.get({ token, now });
+    return (result instanceof Promise ? await result : result) as ConnectionPendingRow | undefined;
+  },
+  async delete(id: string) {
+    await ensureMigration();
+    const stmt = getDb().prepare(`DELETE FROM connection_pending WHERE id=@id`);
+    const result = stmt.run({ id });
+    if (result instanceof Promise) {
+      await result;
+    }
+  },
+  async deleteByToken(token: string) {
+    await ensureMigration();
+    const stmt = getDb().prepare(`DELETE FROM connection_pending WHERE token=@token`);
+    const result = stmt.run({ token });
+    if (result instanceof Promise) {
+      await result;
+    }
+  },
+  async purgeExpired() {
+    await ensureMigration();
+    const now = new Date().toISOString();
+    const stmt = getDb().prepare(`DELETE FROM connection_pending WHERE expires_at < @now`);
+    const result = stmt.run({ now });
+    if (result instanceof Promise) {
+      await result;
+    }
+  },
 };
 
 export const ConnectionTemplateRepo = {

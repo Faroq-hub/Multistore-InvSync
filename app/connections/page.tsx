@@ -109,6 +109,12 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewData, setPreviewData] = useState<any>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [inviteFormData, setInviteFormData] = useState({ name: '', retailer_email: '', retailer_shop_domain: '' });
+  const [inviteSubmitting, setInviteSubmitting] = useState(false);
+  const [createdInvite, setCreatedInvite] = useState<{ invite_url: string; retailer_shop_domain: string } | null>(null);
+  const [invitesModalOpen, setInvitesModalOpen] = useState(false);
+  const [invites, setInvites] = useState<any[]>([]);
   const makeRequest = useCallback(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       let token: string;
@@ -442,6 +448,51 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
     }
   }, [makeRequest]);
 
+  const fetchInvites = useCallback(async () => {
+    try {
+      const data = await makeRequest('/api/connections/invites');
+      setInvites(data.invites || []);
+    } catch (err) {
+      console.error('Error fetching invites:', err);
+      setToast({ content: 'Failed to load invites', error: true });
+    }
+  }, [makeRequest]);
+
+  const handleCreateInvite = async () => {
+    if (!inviteFormData.name.trim()) {
+      setToast({ content: 'Connection name is required', error: true });
+      return;
+    }
+    if (!inviteFormData.retailer_shop_domain.trim()) {
+      setToast({ content: 'Retailer store domain is required', error: true });
+      return;
+    }
+    try {
+      setInviteSubmitting(true);
+      const data = await makeRequest('/api/connections/invites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: inviteFormData.name.trim(),
+          retailer_email: inviteFormData.retailer_email.trim() || undefined,
+          retailer_shop_domain: inviteFormData.retailer_shop_domain.trim(),
+        }),
+      });
+      setCreatedInvite({ invite_url: data.invite_url, retailer_shop_domain: data.retailer_shop_domain });
+      setToast({ content: 'Invite created. Share the link with your retailer.' });
+      fetchInvites();
+    } catch (err) {
+      setToast({ content: err instanceof Error ? err.message : 'Failed to create invite', error: true });
+    } finally {
+      setInviteSubmitting(false);
+    }
+  };
+
+  const copyInviteLink = (url: string) => {
+    navigator.clipboard.writeText(url);
+    setToast({ content: 'Link copied to clipboard' });
+  };
+
   const handleCreateTemplate = async (connectionId: string, templateName: string) => {
     try {
       await makeRequest('/api/connections/templates', {
@@ -472,7 +523,7 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
       if (accessToken) body.access_token = accessToken;
       if (consumerSecret) body.consumer_secret = consumerSecret;
       
-      const data = await makeRequest(`/api/connections/templates/${templateId}/use`, {
+      const data = await makeRequest(`/api/connections/templates/${templateId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -792,6 +843,23 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
       }}
       secondaryActions={
         [
+          {
+            content: 'Invite Retailer',
+            onAction: () => {
+              setCreatedInvite(null);
+              setInviteFormData({ name: '', retailer_email: '', retailer_shop_domain: '' });
+              setInviteModalOpen(true);
+            },
+            disabled: installationStatus?.needsReinstall === true,
+          },
+          {
+            content: 'View Invites',
+            onAction: () => {
+              setInvitesModalOpen(true);
+              fetchInvites();
+            },
+            disabled: installationStatus?.needsReinstall === true,
+          },
           ...(connections.length > 0 ? [{
             content: 'Templates',
             onAction: () => {
@@ -1023,6 +1091,165 @@ export default function ConnectionsPage({ shop, app }: { shop: string; app: Clie
               onChange={(value) => setFormData({ ...formData, sync_categories: value })}
               helpText="Enable to sync product categories/types to the destination store. Categories will be created if they don't exist."
             />
+            <Checkbox
+              label="Sync tags"
+              checked={formData.sync_tags === true}
+              onChange={(value) => setFormData({ ...formData, sync_tags: value })}
+              helpText="When enabled, product tags from the source will be synced to the destination store. When disabled, tags will not be updated."
+            />
+            <Checkbox
+              label="Sync collections"
+              checked={formData.sync_collections === true}
+              onChange={(value) => setFormData({ ...formData, sync_collections: value })}
+              helpText="Enable to sync product collections to the destination store. Collections will be created if they don't exist."
+            />
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
+
+      {/* Invite Retailer Modal */}
+      <Modal
+        open={inviteModalOpen}
+        onClose={() => {
+          setInviteModalOpen(false);
+          setCreatedInvite(null);
+          setInviteFormData({ name: '', retailer_email: '', retailer_shop_domain: '' });
+          fetchConnections();
+        }}
+        title="Invite Retailer"
+        primaryAction={
+          createdInvite
+            ? undefined
+            : {
+                content: 'Create Invite',
+                onAction: handleCreateInvite,
+                loading: inviteSubmitting,
+              }
+        }
+        secondaryActions={[
+          {
+            content: createdInvite ? 'Done' : 'Cancel',
+            onAction: () => {
+              setInviteModalOpen(false);
+              setCreatedInvite(null);
+              setInviteFormData({ name: '', retailer_email: '', retailer_shop_domain: '' });
+              fetchConnections();
+            },
+          },
+        ]}
+      >
+        <Modal.Section>
+          <BlockStack gap="400">
+            {createdInvite ? (
+              <BlockStack gap="300">
+                <Banner tone="success" title="Invite created">
+                  Share this link with your retailer. They will install the app on their store to receive your inventory updates.
+                </Banner>
+                <BlockStack gap="200">
+                  <Text as="p" fontWeight="semibold">Invite link</Text>
+                  <InlineStack gap="200" blockAlign="center">
+                    <TextField
+                      label=""
+                      labelHidden
+                      value={createdInvite.invite_url}
+                      readOnly
+                      autoComplete="off"
+                    />
+                    <Button onClick={() => copyInviteLink(createdInvite.invite_url)}>Copy</Button>
+                  </InlineStack>
+                </BlockStack>
+                <Text as="p" tone="subdued" variant="bodySm">
+                  Store: {createdInvite.retailer_shop_domain}
+                </Text>
+              </BlockStack>
+            ) : (
+              <>
+                <Text as="p" tone="subdued">
+                  Create an invite link for your retailer. They will install the app on their Shopify store to receive automated inventory updates.
+                </Text>
+                <TextField
+                  label="Connection name"
+                  value={inviteFormData.name}
+                  onChange={(value) => setInviteFormData({ ...inviteFormData, name: value })}
+                  placeholder="e.g. Retail Store ABC"
+                  autoComplete="off"
+                />
+                <TextField
+                  label="Retailer store domain"
+                  value={inviteFormData.retailer_shop_domain}
+                  onChange={(value) => setInviteFormData({ ...inviteFormData, retailer_shop_domain: value })}
+                  placeholder="retailer-store.myshopify.com"
+                  helpText="The Shopify store domain of the retailer you're inviting"
+                  autoComplete="off"
+                />
+                <TextField
+                  label="Retailer email (optional)"
+                  value={inviteFormData.retailer_email}
+                  onChange={(value) => setInviteFormData({ ...inviteFormData, retailer_email: value })}
+                  placeholder="retailer@example.com"
+                  helpText="For your reference when sending the invite"
+                  type="email"
+                  autoComplete="off"
+                />
+              </>
+            )}
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
+
+      {/* Invites List Modal */}
+      <Modal
+        open={invitesModalOpen}
+        onClose={() => setInvitesModalOpen(false)}
+        title="Connection Invites"
+        secondaryActions={[
+          {
+            content: 'Close',
+            onAction: () => setInvitesModalOpen(false),
+          },
+        ]}
+      >
+        <Modal.Section>
+          <BlockStack gap="400">
+            <Text as="p" tone="subdued">
+              Invites you&apos;ve sent to retailers. When they complete the setup, the connection will appear in your connections list.
+            </Text>
+            {invites.length === 0 ? (
+              <EmptyState
+                heading="No invites yet"
+                image="https://cdn.shopify.com/s/files/1/0757/9955/files/empty-state.svg"
+              >
+                <p>Create an invite from the &quot;Invite Retailer&quot; button to get started.</p>
+              </EmptyState>
+            ) : (
+              <BlockStack gap="300">
+                {invites.map((inv: any) => (
+                  <Card key={inv.id}>
+                    <BlockStack gap="200">
+                      <InlineStack gap="200" align="space-between" blockAlign="center">
+                        <BlockStack gap="050">
+                          <Text as="h3" variant="headingMd">{inv.name}</Text>
+                          <Text as="p" tone="subdued" variant="bodySm">
+                            {inv.retailer_shop_domain}
+                            {inv.retailer_email ? ` • ${inv.retailer_email}` : ''}
+                          </Text>
+                        </BlockStack>
+                        <Badge tone={inv.status === 'accepted' ? 'success' : inv.status === 'pending' ? 'attention' : 'critical'}>
+                          {inv.status}
+                        </Badge>
+                      </InlineStack>
+                      {inv.status === 'pending' && (
+                        <InlineStack gap="200">
+                          <Button size="slim" onClick={() => copyInviteLink(inv.invite_url)}>
+                            Copy link
+                          </Button>
+                        </InlineStack>
+                      )}
+                    </BlockStack>
+                  </Card>
+                ))}
+              </BlockStack>
+            )}
           </BlockStack>
         </Modal.Section>
       </Modal>

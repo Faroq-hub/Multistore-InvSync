@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, base_url, consumer_key, consumer_secret, sync_price, sync_categories, create_products, product_status, rules } = validation.data;
+    const { name, base_url, consumer_key, consumer_secret, sync_price, sync_categories, sync_tags, sync_collections, create_products, product_status, rules } = validation.data;
 
     // Normalize base_url: remove trailing slashes and /wp-json if present
     let baseUrl = base_url.replace(/\/+$/, ''); // Remove trailing slashes
@@ -144,6 +144,8 @@ export async function POST(request: NextRequest) {
       consumer_secret,
       sync_price,
       sync_categories,
+      sync_tags,
+      sync_collections,
       create_products,
       product_status,
       rules: rules || null

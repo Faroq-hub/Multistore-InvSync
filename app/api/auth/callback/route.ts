@@ -1,7 +1,10 @@
+import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { shopify } from '../../../../src/shopify/shopify';
 import { syncShopifyWebhooks } from '../../../../src/shopify/webhooks';
-import { InstallationRepo, ShopifyOAuthStateRepo } from '../../../../src/db';
+import { InstallationRepo, ShopifyOAuthStateRepo, ConnectionInviteRepo, ConnectionRepo, ConnectionPendingRepo } from '../../../../src/db';
+import { ulid } from 'ulid';
+import { encryptSecret } from '../../../../src/utils/secrets';
 
 export const runtime = 'nodejs';
 
@@ -76,20 +79,49 @@ export async function GET(request: NextRequest) {
   const installationId = await InstallationRepo.upsert(sanitizedShop, tokenPayload.access_token, tokenPayload.scope);
   const installation = await InstallationRepo.getById(installationId);
 
-  if (installation?.access_token) {
-    try {
-      await syncShopifyWebhooks(installation);
-    } catch (err) {
-      console.error('Failed to sync Shopify webhooks:', err);
-    }
-  }
-
   const host = request.cookies.get(HOST_COOKIE)?.value;
   const appUrl = process.env.APP_URL || `https://${shopify.config.hostName}`;
   const redirectUrl = new URL(appUrl);
-  redirectUrl.searchParams.set('shop', sanitizedShop);
-  if (host) {
-    redirectUrl.searchParams.set('host', host);
+
+  const inviteId = storedState?.invite_id;
+
+  // If this was an invite flow, create pending record and redirect to location selection
+  if (inviteId) {
+    const invite = await ConnectionInviteRepo.get(inviteId);
+    if (invite && invite.status === 'pending' && invite.installation_id) {
+      const encryptedToken = encryptSecret(tokenPayload.access_token);
+      if (!encryptedToken) {
+        redirectUrl.pathname = '/connect/success';
+        redirectUrl.searchParams.set('token', 'error');
+      } else {
+        const pendingId = ulid();
+        const pendingToken = crypto.randomBytes(24).toString('hex');
+        await ConnectionPendingRepo.insert({
+          id: pendingId,
+          token: pendingToken,
+          invite_id: inviteId,
+          dest_shop_domain: sanitizedShop,
+          access_token: encryptedToken,
+        });
+        redirectUrl.pathname = '/connect/complete';
+        redirectUrl.searchParams.set('pending', pendingToken);
+      }
+    } else {
+      redirectUrl.pathname = '/connect/success';
+      redirectUrl.searchParams.set('token', 'used');
+    }
+  } else {
+    if (installation?.access_token) {
+      try {
+        await syncShopifyWebhooks(installation);
+      } catch (err) {
+        console.error('Failed to sync Shopify webhooks:', err);
+      }
+    }
+    redirectUrl.searchParams.set('shop', sanitizedShop);
+    if (host) {
+      redirectUrl.searchParams.set('host', host);
+    }
   }
 
   const response = NextResponse.redirect(redirectUrl.toString());

@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, dest_shop_domain, access_token, dest_location_id, sync_price, sync_categories, create_products, product_status, rules } = validation.data;
+    const { name, dest_shop_domain, access_token, dest_location_id, sync_price, sync_categories, sync_tags, sync_collections, create_products, product_status, rules } = validation.data;
 
     // Verify installation and get installation_id
     const { installation_id } = await verifyInstallationAccess(shop);
@@ -35,6 +35,8 @@ export async function POST(request: NextRequest) {
       dest_location_id,
       sync_price,
       sync_categories,
+      sync_tags,
+      sync_collections,
       create_products,
       product_status,
       rules: rules || null

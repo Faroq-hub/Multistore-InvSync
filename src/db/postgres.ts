@@ -70,6 +70,8 @@ export async function migratePostgres(): Promise<void> {
       `ALTER TABLE connections ADD COLUMN IF NOT EXISTS create_products INTEGER NOT NULL DEFAULT 1`,
       `ALTER TABLE connections ADD COLUMN IF NOT EXISTS product_status INTEGER NOT NULL DEFAULT 0`,
       `ALTER TABLE connections ADD COLUMN IF NOT EXISTS last_synced_at TEXT`,
+      `ALTER TABLE shopify_oauth_states ADD COLUMN IF NOT EXISTS invite_id TEXT`,
+      `ALTER TABLE shopify_oauth_states ADD COLUMN IF NOT EXISTS location_id TEXT`,
     ];
 
     for (const stmt of addColumnStatements) {
@@ -165,6 +167,39 @@ export async function migratePostgres(): Promise<void> {
         created_at TEXT NOT NULL,
         FOREIGN KEY (installation_id) REFERENCES installations(id) ON DELETE CASCADE
       )`,
+      `CREATE TABLE IF NOT EXISTS shopify_oauth_states (
+        state TEXT PRIMARY KEY,
+        shop_domain TEXT NOT NULL,
+        invite_id TEXT,
+        location_id TEXT,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS connection_pending (
+        id TEXT PRIMARY KEY,
+        token TEXT NOT NULL UNIQUE,
+        invite_id TEXT NOT NULL,
+        dest_shop_domain TEXT NOT NULL,
+        access_token TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS connection_invites (
+        id TEXT PRIMARY KEY,
+        installation_id TEXT NOT NULL,
+        token TEXT NOT NULL UNIQUE,
+        retailer_email TEXT,
+        retailer_shop_domain TEXT NOT NULL,
+        name TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending','accepted','expired','cancelled')) DEFAULT 'pending',
+        connection_id TEXT,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (installation_id) REFERENCES installations(id) ON DELETE CASCADE
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_connection_invites_token ON connection_invites(token)`,
+      `CREATE INDEX IF NOT EXISTS idx_connection_invites_installation ON connection_invites(installation_id)`,
       `CREATE INDEX IF NOT EXISTS idx_connections_installation ON connections(installation_id)`,
       `CREATE INDEX IF NOT EXISTS idx_templates_installation ON connection_templates(installation_id)`,
       `CREATE INDEX IF NOT EXISTS idx_templates_type ON connection_templates(type)`,

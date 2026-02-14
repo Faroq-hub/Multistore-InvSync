@@ -480,6 +480,7 @@ async function createProductInShopify(
   log: (m: string) => void
 ): Promise<{ variants: Map<string, any>; product: any } | null> {
   const shouldSyncCategories = conn.sync_categories === 1;
+  const shouldSyncTags = conn.sync_tags === 1;
   const firstItem = items[0];
   if (!firstItem) {
     log('No items to create product');
@@ -512,14 +513,14 @@ async function createProductInShopify(
   const productStatus = conn.product_status === 1 ? 'active' : 'draft';
   log(`Creating product as ${productStatus} (product_status: ${conn.product_status})`);
   
-  // Build the product payload
+  // Build the product payload; only include tags when sync_tags is enabled
   const productPayload: any = {
     product: {
       title: baseTitle,
       body_html: firstItem.description || '',
       vendor: firstItem.vendor || '',
       product_type: shouldSyncCategories ? (firstItem.category || '') : '',
-      tags: firstItem.tags?.join(', ') || '',
+      tags: shouldSyncTags ? (firstItem.tags?.join(', ') || '') : '',
       status: productStatus,
       variants: variants
     }
@@ -581,7 +582,7 @@ async function createProductInShopify(
   }
 
   // Sync collections if enabled
-  const shouldSyncCollections = conn.sync_categories === 1;
+  const shouldSyncCollections = conn.sync_collections === 1;
   if (shouldSyncCollections && firstItem.collections && firstItem.collections.length > 0) {
     log(`Adding product to ${firstItem.collections.length} collection(s)`);
     for (const sourceCollection of firstItem.collections) {
@@ -988,8 +989,8 @@ async function pushToShopify(connId: string, log: (m: string) => void, filterSku
         }
       }
 
-      // Sync collections for existing products (if sync_categories enabled and product wasn't just created)
-      const shouldSyncCollections = conn.sync_categories === 1;
+      // Sync collections for existing products (if sync_collections enabled and product wasn't just created)
+      const shouldSyncCollections = conn.sync_collections === 1;
       if (shouldSyncCollections && existingVariants.length > 0 && !createdProducts.has(productKey)) {
         const firstItem = existingVariants[0].item;
         const productId = existingVariants[0].product?.id;
@@ -1045,6 +1046,7 @@ async function createProductInWoo(
   log: (m: string) => void
 ): Promise<any | null> {
   const shouldSyncCategories = conn.sync_categories === 1;
+  const shouldSyncTags = conn.sync_tags === 1;
   
   // Build the product payload
   const productPayload: any = {
@@ -1059,6 +1061,11 @@ async function createProductInWoo(
     stock_status: (item.stock || 0) > 0 ? 'instock' : 'outofstock',
     status: 'publish'
   };
+
+  // Add tags when sync_tags is enabled (WooCommerce expects array of { id, name } or { name })
+  if (shouldSyncTags && item.tags && item.tags.length > 0) {
+    productPayload.tags = item.tags.map(t => ({ name: typeof t === 'string' ? t.trim() : String(t).trim() })).filter(t => t.name);
+  }
 
   // Add barcode as meta data if available
   if (item.barcode) {
