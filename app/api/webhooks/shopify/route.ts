@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createHmac } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 
 /**
  * Shopify webhook endpoint - required for App Store compliance.
- * Must be reachable at APP_URL (same as main app) since Railway exposes one port.
- * Handles: products/*, inventory_levels/update, app/uninstalled,
- *          customers/data_request, customers/redact, shop/redact (GDPR)
+ * Per https://shopify.dev/docs/apps/build/compliance/privacy-law-compliance
+ * - Handles POST with JSON body and Content-Type: application/json
+ * - Returns 401 if HMAC header is invalid (timing-safe comparison)
+ * - Returns 200 to confirm receipt
  */
 export async function POST(request: NextRequest) {
   try {
     const rawBody = await request.text();
     const headerHmac = request.headers.get('x-shopify-hmac-sha256');
 
-    // Shopify uses client secret for webhook HMAC - use SHOPIFY_API_SECRET or SHOPIFY_WEBHOOK_SECRET
+    // Shopify uses client secret for webhook HMAC
     const secret = process.env.SHOPIFY_WEBHOOK_SECRET || process.env.SHOPIFY_API_SECRET || '';
 
     if (!secret) {
@@ -24,8 +25,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing HMAC signature' }, { status: 401 });
     }
 
-    const digest = createHmac('sha256', secret).update(rawBody, 'utf8').digest('base64');
-    if (digest !== headerHmac) {
+    const digestBuf = createHmac('sha256', secret).update(rawBody, 'utf8').digest();
+    const headerBuf = Buffer.from(headerHmac, 'base64');
+    if (digestBuf.length !== headerBuf.length || !timingSafeEqual(digestBuf, headerBuf)) {
       return NextResponse.json({ error: 'Invalid HMAC signature' }, { status: 401 });
     }
 

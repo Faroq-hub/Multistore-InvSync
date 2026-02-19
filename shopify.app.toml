@@ -1,0 +1,29 @@
+# Shopify App configuration - required for App Store compliance
+# See: https://shopify.dev/docs/apps/build/compliance/privacy-law-compliance
+#
+# 1. Replace APPLICATION_URL with your production URL (e.g. https://your-app.up.railway.app)
+# 2. Replace CLIENT_ID with your app's Client ID from Shopify Partners
+# 3. Run: shopify app deploy
+#    Or manually add Event subscriptions in Partner Dashboard → App setup → Event subscriptions
+
+name = "Store Connect"
+client_id = "YOUR_CLIENT_ID"
+application_url = "https://YOUR_APP_URL"
+embedded = true
+
+[access_scopes]
+scopes = "read_products,write_products,read_inventory,write_inventory,read_locations"
+
+[auth]
+redirect_urls = [
+  "https://YOUR_APP_URL/api/auth/callback"
+]
+
+# Mandatory compliance webhooks - REQUIRED for App Store
+# URI is relative to application_url; full URL = application_url + uri
+[webhooks]
+api_version = "2024-10"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+uri = "/api/webhooks/shopify"
