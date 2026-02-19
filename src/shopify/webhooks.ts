@@ -23,11 +23,11 @@ const REQUIRED_TOPICS = [
 ];
 
 function getWebhookBaseUrl(): string {
-  const value = process.env.SHOPIFY_WEBHOOK_BASE_URL;
+  const value = process.env.SHOPIFY_WEBHOOK_BASE_URL || process.env.APP_URL;
   if (value && value.trim().length > 0) {
     return value.replace(/\/$/, '');
   }
-  throw new Error('SHOPIFY_WEBHOOK_BASE_URL environment variable is required for webhook registration');
+  throw new Error('SHOPIFY_WEBHOOK_BASE_URL or APP_URL environment variable is required for webhook registration');
 }
 
 export async function syncShopifyWebhooks(installation: InstallationRow): Promise<void> {
@@ -36,7 +36,8 @@ export async function syncShopifyWebhooks(installation: InstallationRow): Promis
   }
 
   const baseUrl = getWebhookBaseUrl();
-  const addressUrl = new URL('/webhooks/shopify', baseUrl);
+  // Use /api/webhooks/shopify - Next.js route (reachable when app deployed on single port, e.g. Railway)
+  const addressUrl = new URL('/api/webhooks/shopify', baseUrl);
   addressUrl.searchParams.set('installation_id', installation.id);
   const address = addressUrl.toString();
 
